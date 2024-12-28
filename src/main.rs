@@ -1,6 +1,8 @@
+mod lunos;
 mod modules;
 
 use javascriptcore_sys::*;
+use lunos::{help, version};
 use std::env;
 use std::ffi::CString;
 use std::fs;
@@ -8,8 +10,19 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        eprintln!("Usage: {} <file.js>", args[0]);
-        std::process::exit(1);
+        help::show(1);
+    }
+
+    match args[1].as_str() {
+        "-v" | "--version" => {
+            version::show(0);
+        },
+        "-h" | "--help" => {
+            help::show(0);
+        },
+        _ => {
+            help::show(1);
+        },
     }
 
     let js_file = &args[1];
