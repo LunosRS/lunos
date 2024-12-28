@@ -2,7 +2,7 @@ mod lunos;
 mod modules;
 
 use javascriptcore_sys::*;
-use lunos::{help, version};
+use lunos::{help, repl, version};
 use std::env;
 use std::ffi::CString;
 use std::fs;
@@ -16,13 +16,14 @@ fn main() {
     match args[1].as_str() {
         "-v" | "--version" => {
             version::show(0);
-        },
+        }
         "-h" | "--help" => {
             help::show(0);
-        },
-        _ => {
-            help::show(1);
-        },
+        }
+        "repl" => {
+            repl::start_repl(0);
+        }
+        _ => {}
     }
 
     let js_file = &args[1];
