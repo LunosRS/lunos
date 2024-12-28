@@ -1,4 +1,3 @@
-mod carbon;
 mod modules;
 
 use javascriptcore_sys::*;
@@ -9,17 +8,8 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        carbon::help::show();
-    }
-
-    match args[1].as_str() {
-        "-v" | "--version" => {
-            carbon::version::show();
-        }
-        "-h" | "--help" => {
-            carbon::help::show();
-        }
-        _ => {}
+        eprintln!("Usage: {} <file.js>", args[0]);
+        std::process::exit(1);
     }
 
     let js_file = &args[1];
@@ -33,8 +23,13 @@ fn main() {
 
     unsafe {
         let context = JSGlobalContextCreate(std::ptr::null_mut());
-        modules::console::Console::bind_to_context(context);
-        modules::carbon::Carbon::bind_to_context(context);
+
+        // Console.*
+        let console = modules::console::Console::new();
+        console.bind_to_context(context);
+
+        // Lunos.*
+        modules::lunos::Carbon::bind_to_context(context);
 
         let js_cstr = CString::new(js_code).unwrap();
         let script = JSStringCreateWithUTF8CString(js_cstr.as_ptr());
