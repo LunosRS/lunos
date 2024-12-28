@@ -6,6 +6,17 @@ const BUFFER_SIZE: usize = 65536;
 const MAX_CACHED_NUM: usize = 100_000;
 const WARNING_PREFIX: [u8; 18] = *b"\x1b[33mWARNING:\x1b[0m ";
 const ERROR_PREFIX: [u8; 16] = *b"\x1b[31mERROR:\x1b[0m ";
+static mut CALL_COUNTER: usize = 0;
+static mut FLUSH_MODE: FlushMode = FlushMode::Unknown;
+
+pub struct Console;
+
+#[derive(PartialEq)]
+enum FlushMode {
+    Unknown,
+    Immediate,
+    Batched,
+}
 
 #[repr(C, align(64))]
 struct OutputBuffer {
@@ -57,19 +68,8 @@ const NUMBER_CACHE: ([[u8; 16]; MAX_CACHED_NUM], [usize; MAX_CACHED_NUM]) = {
 };
 
 #[inline(always)]
-unsafe fn write_stdout(buf: &[u8]) {
-    let _ret: i32;
-    let fd: i32 = 1;
-    asm!(
-        "syscall",
-        inlateout("rax") 1i32 => _ret,
-        in("rdi") fd,
-        in("rsi") buf.as_ptr(),
-        in("rdx") buf.len(),
-        out("rcx") _,
-        out("r11") _,
-        options(nostack)
-    );
+unsafe fn is_number(ctx: JSContextRef, value: JSValueRef) -> bool {
+    JSValueGetType(ctx, value) as u32 == 1
 }
 
 #[inline(always)]
@@ -87,6 +87,45 @@ unsafe fn buffer_write(buf: &[u8]) {
     }
     OUTPUT_BUFFER.data[OUTPUT_BUFFER.pos..OUTPUT_BUFFER.pos + buf.len()].copy_from_slice(buf);
     OUTPUT_BUFFER.pos += buf.len();
+}
+
+#[inline(always)]
+unsafe fn write_stdout(buf: &[u8]) {
+    let _ret: i32;
+    let fd: i32 = 1;
+    asm!(
+        "syscall",
+        inlateout("rax") 1i32 => _ret,
+        in("rdi") fd,
+        in("rsi") buf.as_ptr(),
+        in("rdx") buf.len(),
+        out("rcx") _,
+        out("r11") _,
+        options(nostack)
+    );
+}
+
+#[inline(always)]
+unsafe fn smart_flush(force: bool) {
+    match FLUSH_MODE {
+        FlushMode::Unknown => {
+            CALL_COUNTER += 1;
+            if CALL_COUNTER > 10000 {
+                FLUSH_MODE = FlushMode::Batched;
+            } else if CALL_COUNTER > 100 && CALL_COUNTER < 1000 {
+                FLUSH_MODE = FlushMode::Immediate;
+                flush_buffer();
+            }
+        }
+        FlushMode::Immediate => {
+            flush_buffer();
+        }
+        FlushMode::Batched => {
+            if force || OUTPUT_BUFFER.pos >= BUFFER_SIZE - 1024 {
+                flush_buffer();
+            }
+        }
+    }
 }
 
 #[inline(always)]
@@ -120,8 +159,6 @@ unsafe fn write_number(num: usize) {
     }
 }
 
-pub struct Console;
-
 impl Console {
     #[inline(always)]
     pub unsafe fn bind_to_context(ctx: JSGlobalContextRef) {
@@ -148,6 +185,19 @@ impl Console {
             JSStringRelease(str_ref);
         }
 
+        let noflush_name = CString::new("noflush").unwrap();
+        let noflush_str = JSStringCreateWithUTF8CString(noflush_name.as_ptr());
+        let noflush_obj = JSObjectMake(ctx, std::ptr::null_mut(), std::ptr::null_mut());
+        JSObjectSetProperty(
+            ctx,
+            console_obj,
+            noflush_str,
+            noflush_obj,
+            0,
+            std::ptr::null_mut(),
+        );
+        JSStringRelease(noflush_str);
+
         let global = JSContextGetGlobalObject(ctx);
         JSObjectSetProperty(
             ctx,
@@ -161,11 +211,6 @@ impl Console {
     }
 }
 
-#[inline(always)]
-unsafe fn is_number(ctx: JSContextRef, value: JSValueRef) -> bool {
-    JSValueGetType(ctx, value) as u32 == 1
-}
-
 unsafe extern "C" fn console_log(
     ctx: JSContextRef,
     _function: JSObjectRef,
@@ -174,13 +219,29 @@ unsafe extern "C" fn console_log(
     arguments: *const JSValueRef,
     _exception: *mut JSValueRef,
 ) -> JSValueRef {
-    if argument_count == 1 {
+    let no_flush = if argument_count > 1 {
+        let last_arg = *arguments.offset((argument_count - 1) as isize);
+        let is_obj = JSValueIsObject(ctx, last_arg) != false;
+        let obj = JSValueToObject(ctx, last_arg, std::ptr::null_mut());
+        let is_fn = JSObjectIsFunction(ctx, obj) == false;
+        is_obj && is_fn
+    } else {
+        false
+    };
+
+    let actual_args = if no_flush {
+        argument_count - 1
+    } else {
+        argument_count
+    };
+
+    if actual_args == 1 {
         let arg = *arguments;
         if is_number(ctx, arg) {
             let num = JSValueToNumber(ctx, arg, std::ptr::null_mut());
             if num >= 0.0 {
                 write_number(num as usize);
-                if OUTPUT_BUFFER.pos > BUFFER_SIZE / 2 {
+                if OUTPUT_BUFFER.pos >= BUFFER_SIZE - 1024 {
                     flush_buffer();
                 }
                 return JSValueMakeUndefined(ctx);
@@ -188,7 +249,7 @@ unsafe extern "C" fn console_log(
         }
     }
 
-    for i in 0..argument_count {
+    for i in 0..actual_args {
         let arg = *arguments.offset(i as isize);
         let str_ref = JSValueToStringCopy(ctx, arg, std::ptr::null_mut());
         let max_size = JSStringGetMaximumUTF8CStringSize(str_ref);
@@ -199,7 +260,7 @@ unsafe extern "C" fn console_log(
         let str_len = (0..max_size).take_while(|&j| local_buf[j] != 0).count();
         buffer_write(&local_buf[..str_len]);
 
-        if i < argument_count - 1 {
+        if i < actual_args - 1 {
             buffer_write(b" ");
         }
 
@@ -208,7 +269,9 @@ unsafe extern "C" fn console_log(
 
     buffer_write(b"\n");
 
-    if OUTPUT_BUFFER.pos > BUFFER_SIZE / 2 {
+    if !no_flush {
+        smart_flush(false);
+    } else if OUTPUT_BUFFER.pos >= BUFFER_SIZE - 1024 {
         flush_buffer();
     }
 
@@ -248,5 +311,7 @@ unsafe extern "C" fn console_flush(
     _exception: *mut JSValueRef,
 ) -> JSValueRef {
     flush_buffer();
+    FLUSH_MODE = FlushMode::Unknown;
+    CALL_COUNTER = 0;
     JSValueMakeUndefined(ctx)
 }
