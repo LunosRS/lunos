@@ -1,0 +1,21 @@
+[package]
+name = "lunos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+javascriptcore-sys = "0.0.6"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+
+[profile.release.build-override]
+opt-level = 3
+
+[profile.release.package."*"]
+opt-level = 3
