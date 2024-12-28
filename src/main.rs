@@ -1,5 +1,4 @@
-mod carbon;
-mod io;
+mod modules;
 
 use javascriptcore_sys::*;
 use std::env;
@@ -24,8 +23,8 @@ fn main() {
 
     unsafe {
         let context = JSGlobalContextCreate(std::ptr::null_mut());
-        io::Console::bind_to_context(context);
-        carbon::Carbon::bind_to_context(context);
+        modules::console::Console::bind_to_context(context);
+        modules::carbon::Carbon::bind_to_context(context);
 
         let js_cstr = CString::new(js_code).unwrap();
         let script = JSStringCreateWithUTF8CString(js_cstr.as_ptr());
