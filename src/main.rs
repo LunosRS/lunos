@@ -14,7 +14,7 @@ fn main() {
 
     let js_file = &args[1];
     let js_code = match fs::read_to_string(js_file) {
-        Ok(content) => content,
+        Ok(content) => content + "\nconsole.flush();",
         Err(e) => {
             eprintln!("Error reading file {}: {}", js_file, e);
             std::process::exit(1);
