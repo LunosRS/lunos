@@ -1,3 +1,4 @@
+mod carbon;
 mod modules;
 
 use javascriptcore_sys::*;
@@ -8,8 +9,17 @@ use std::fs;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        eprintln!("Usage: {} <js-file>", args[0]);
-        std::process::exit(1);
+        carbon::help::show();
+    }
+
+    match args[1].as_str() {
+        "-v" | "--version" => {
+            carbon::version::show();
+        }
+        "-h" | "--help" => {
+            carbon::help::show();
+        }
+        _ => {}
     }
 
     let js_file = &args[1];
