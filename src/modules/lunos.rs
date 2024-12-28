@@ -2,9 +2,9 @@ use javascriptcore_sys::*;
 use std::{ffi::CString, thread};
 use tiny_http::{Server, Response};
 
-pub struct Carbon;
+pub struct Lunos;
 
-impl Carbon {
+impl Lunos {
     pub fn bind_to_context(context: *mut OpaqueJSContext) {
         unsafe {
             let global_object = JSContextGetGlobalObject(context);
@@ -16,22 +16,22 @@ impl Carbon {
                 Some(Self::serve_callback),
             );
 
-            let carbon_object = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
+            let lunos_object = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
             JSObjectSetProperty(
                 context,
-                carbon_object,
+                lunos_object,
                 JSStringCreateWithUTF8CString(serve_name.as_ptr()),
                 serve_function,
                 kJSPropertyAttributeNone,
                 std::ptr::null_mut(),
             );
 
-            let carbon_name = CString::new("Lunos").unwrap();
+            let lunos_name = CString::new("Lunos").unwrap();
             JSObjectSetProperty(
                 context,
                 global_object,
-                JSStringCreateWithUTF8CString(carbon_name.as_ptr()),
-                carbon_object,
+                JSStringCreateWithUTF8CString(lunos_name.as_ptr()),
+                lunos_object,
                 kJSPropertyAttributeNone,
                 std::ptr::null_mut(),
             );

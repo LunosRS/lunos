@@ -43,7 +43,7 @@ fn main() {
         console.bind_to_context(context);
 
         // Lunos.*
-        modules::lunos::Carbon::bind_to_context(context);
+        modules::lunos::Lunos::bind_to_context(context);
 
         let js_cstr = CString::new(js_code).unwrap();
         let script = JSStringCreateWithUTF8CString(js_cstr.as_ptr());
@@ -61,6 +61,7 @@ fn main() {
         JSGlobalContextRelease(context);
 
         if result.is_null() {
+            println!("Error evaluating script!");
             std::process::exit(1);
         }
     }

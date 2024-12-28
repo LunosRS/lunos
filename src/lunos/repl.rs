@@ -9,7 +9,7 @@ pub fn start_repl(exit_code: i32) {
         let console = crate::modules::console::Console::new();
         console.bind_to_context(context);
 
-        crate::modules::lunos::Carbon::bind_to_context(context);
+        crate::modules::lunos::Lunos::bind_to_context(context);
 
         println!("Lunos REPL");
         println!("Type 'exit' to quit.");
