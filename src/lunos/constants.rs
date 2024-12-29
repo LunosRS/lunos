@@ -22,3 +22,10 @@ Help:
     -v / --version        show version info
     <js_file>             execute a js file
 "#;
+pub const REPL_HELP: &str = r#"Lunos REPL help:
+    Commands:
+      .help      show this screen
+      .exit      leave the repl
+      .clear     clear the screen
+      .version   show version info
+"#;

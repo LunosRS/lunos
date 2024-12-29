@@ -1,6 +1,48 @@
 use javascriptcore_sys::*;
 use rustyline::DefaultEditor;
-use std::ffi::CString;
+use crossterm::{execute, terminal::{Clear, ClearType}};
+use std::{ffi::CString, process};
+use std::io::stdout;
+
+use crate::lunos::constants::{ASCII_BANNER, NAME, VERSION, REPL_HELP};
+use crate::lunos::io::colorize;
+
+fn print_welcome() {
+    println!("Welcome to Lunos v{}", VERSION);
+    colorize("[!] Please note: this feature is not fully baked!", "yellow");
+    println!("Type .help for help");
+}
+
+fn clear() {
+    execute!(stdout(), Clear(ClearType::All)).unwrap();
+    print_welcome();
+}
+
+fn handle_command(input: &str, exit_code: i32) -> bool {
+    match input {
+        ".help" => {
+            println!("{}", REPL_HELP);
+            true
+        }
+        ".version" => {
+            println!("{}{} v{}", ASCII_BANNER, NAME, VERSION);
+            true
+        }
+        ".exit" => {
+            colorize("Goodbye!", "green");
+            process::exit(exit_code);
+        }
+        ".clear" => {
+            clear();
+            true
+        }
+        _ if input.starts_with('.') => {
+            println!("Unknown command: {}", input);
+            true
+        }
+        _ => false,
+    }
+}
 
 pub fn start_repl(exit_code: i32) {
     unsafe {
@@ -11,21 +53,23 @@ pub fn start_repl(exit_code: i32) {
 
         crate::modules::lunos::Lunos::bind_to_context(context);
 
-        println!("Lunos REPL");
-        println!("Type 'exit' to quit.");
+        print_welcome();
 
         let mut rusty_line = DefaultEditor::new().unwrap();
 
         loop {
-            let readline = rusty_line.readline("Lunos > ");
+            let readline = rusty_line.readline("> ");
             match readline {
                 Ok(input) => {
                     let input = input.trim();
-                    if input.eq_ignore_ascii_case("exit") {
-                        std::process::exit(exit_code);
+
+                    if handle_command(input, exit_code) {
+                        continue;
                     }
 
-                    let js_code = format!("{}\nconsole.flush();", input);
+                    rusty_line.add_history_entry(input).unwrap();
+
+                    let js_code = format!("eval('{}')", input);
                     let js_cstr = CString::new(js_code).unwrap();
                     let script = JSStringCreateWithUTF8CString(js_cstr.as_ptr());
 
@@ -41,7 +85,7 @@ pub fn start_repl(exit_code: i32) {
                     JSStringRelease(script);
 
                     if result.is_null() {
-                        println!("Error evaluating...");
+                        println!("Error occurred! (Probably a syntax error)");
                     } else {
                         let result_str = JSValueToStringCopy(context, result, std::ptr::null_mut());
                         let mut buffer = [0u8; 1024];
@@ -56,6 +100,21 @@ pub fn start_repl(exit_code: i32) {
 
                         JSStringRelease(result_str);
                     }
+
+                    let flush_code = "console.flush();";
+                    let flush_cstr = CString::new(flush_code).unwrap();
+                    let flush_script = JSStringCreateWithUTF8CString(flush_cstr.as_ptr());
+
+                    JSEvaluateScript(
+                        context,
+                        flush_script,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null_mut(),
+                    );
+
+                    JSStringRelease(flush_script);
                 }
                 Err(_) => {
                     println!("Error reading input.");
