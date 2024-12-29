@@ -1,12 +1,13 @@
 [package]
 name = "lunos"
 description = "A Blazingly fast JavaScript runtime"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Thoq"]
 license = "MIT"
 
 [dependencies]
+crossterm = "0.28.1"
 javascriptcore-sys = "0.0.6"
 once_cell = "1.20.2"
 rustyline = "15.0.0"
