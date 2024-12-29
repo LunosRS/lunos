@@ -1,21 +1,14 @@
+use core::panic;
+
 fn main() {
     if cfg!(target_os = "windows") {
-        let arch = if cfg!(target_arch = "x86_64") {
-            ".build/windows/bin64"
-        } else {
-            ".build/windows/bin32"
-        };
-
-        println!("cargo:rustc-link-search=native={}/", arch);
-        println!("cargo:rustc-link-lib=static=JavaScriptCore");
-        println!("cargo:rustc-link-lib=static=WTF");
-        println!("cargo:rustc-link-lib=dylib=JavaScriptCore");
-        println!("cargo:rustc-link-lib=dylib=WTF");
-
+        panic!("No. Windows does NOT work.");
     } else if cfg!(target_os = "macos") {
+        println!("Building for macOS...");
         println!("cargo:rustc-link-lib=framework=JavaScriptCore");
 
     } else if cfg!(target_os = "linux") {
+        println!("Building for Linux...");
         println!("cargo:rustc-link-lib=dylib=javascriptcoregtk-4.0");
 
     } else {
