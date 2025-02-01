@@ -1,6 +1,6 @@
 use javascriptcore_sys::*;
 use std::ffi::CString;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 pub struct Console {
     buffer: Mutex<Vec<String>>,
@@ -91,16 +91,12 @@ impl Console {
         }
     }
 
-    unsafe extern "C" fn log_callback(
-        context: *const OpaqueJSContext,
-        _: *mut OpaqueJSValue,
-        _: *mut OpaqueJSValue,
+    unsafe fn count_arguments(
         argument_count: usize,
         arguments: *const *const OpaqueJSValue,
-        _: *mut *const OpaqueJSValue,
-    ) -> *const OpaqueJSValue {
-        let mut buffer = Console::get_instance().buffer.lock().unwrap();
-
+        context: *const OpaqueJSContext,
+        mut buffer: MutexGuard<Vec<String>>
+    ) {
         for i in 0..argument_count {
             let arg = *arguments.add(i);
             let js_string = JSValueToStringCopy(context, arg, std::ptr::null_mut());
@@ -113,6 +109,19 @@ impl Console {
 
             JSStringRelease(js_string);
         }
+    }
+
+    unsafe extern "C" fn log_callback(
+        context: *const OpaqueJSContext,
+        _: *mut OpaqueJSValue,
+        _: *mut OpaqueJSValue,
+        argument_count: usize,
+        arguments: *const *const OpaqueJSValue,
+        _: *mut *const OpaqueJSValue,
+    ) -> *const OpaqueJSValue {
+        let buffer = Console::get_instance().buffer.lock().unwrap();
+
+        Self::count_arguments(argument_count, arguments, context, buffer);
 
         JSValueMakeUndefined(context)
     }
@@ -125,20 +134,9 @@ impl Console {
         arguments: *const *const OpaqueJSValue,
         _: *mut *const OpaqueJSValue,
     ) -> *const OpaqueJSValue {
-        let mut buffer = Console::get_instance().buffer.lock().unwrap();
+        let buffer = Console::get_instance().buffer.lock().unwrap();
 
-        for i in 0..argument_count {
-            let arg = *arguments.add(i);
-            let js_string = JSValueToStringCopy(context, arg, std::ptr::null_mut());
-            let c_string = JSStringGetCharactersPtr(js_string);
-            let length = JSStringGetLength(js_string);
-
-            let rust_string =
-                String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length));
-            buffer.push(rust_string);
-
-            JSStringRelease(js_string);
-        }
+        Self::count_arguments(argument_count, arguments, context, buffer);
 
         JSValueMakeUndefined(context)
     }
@@ -151,20 +149,9 @@ impl Console {
         arguments: *const *const OpaqueJSValue,
         _: *mut *const OpaqueJSValue,
     ) -> *const OpaqueJSValue {
-        let mut buffer = Console::get_instance().buffer.lock().unwrap();
+        let buffer = Console::get_instance().buffer.lock().unwrap();
 
-        for i in 0..argument_count {
-            let arg = *arguments.add(i);
-            let js_string = JSValueToStringCopy(context, arg, std::ptr::null_mut());
-            let c_string = JSStringGetCharactersPtr(js_string);
-            let length = JSStringGetLength(js_string);
-
-            let rust_string =
-                String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length));
-            buffer.push(rust_string);
-
-            JSStringRelease(js_string);
-        }
+        Self::count_arguments(argument_count, arguments, context, buffer);
 
         JSValueMakeUndefined(context)
     }

@@ -20,6 +20,7 @@ Help:
   Flags:
     -h / --help / none    show this screen
     -v / --version        show version info
+    repl                  start the repl
     <js_file>             execute a js file
 "#;
 pub const REPL_HELP: &str = r#"Lunos REPL help:
