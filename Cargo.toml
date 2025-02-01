@@ -1,7 +1,7 @@
 [package]
 name = "lunos"
 description = "A Blazingly fast JavaScript runtime"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 authors = ["LunosRS"]
 license = "MIT"
@@ -11,9 +11,9 @@ crossterm = "0.28.1"
 javascriptcore-sys = { git = "https://github.com/LunosRS/jsc.git", branch = "main" }
 once_cell = "1.20.2"
 rustyline = "15.0.0"
-tiny_http = "0.12.0"
 num_cpus = "1.16.0"
 rayon = "1.8.1"
+tokio = { version = "1.43.0", features = ["full"] }
 
 [profile.release]
 opt-level = 3
