@@ -1,15 +1,21 @@
+use crossterm::execute;
+use crossterm::terminal::{Clear, ClearType};
 use javascriptcore_sys::*;
 use rustyline::DefaultEditor;
-use crossterm::{execute, terminal::{Clear, ClearType}};
+use std::io::{stdout, Write};
 use std::{ffi::CString, process};
-use std::io::stdout;
 
-use crate::lunos::constants::{ASCII_BANNER, NAME, VERSION, REPL_HELP};
+use crate::lunos::constants::{
+    ASCII_BANNER, NAME, REPL_HELP, THE_ULTIMATE_QUESTION_AND_ANSWER, VERSION,
+};
 use crate::lunos::io::colorize;
 
 fn print_welcome() {
     println!("Welcome to Lunos v{}", VERSION);
-    colorize("[!] Please note: this feature is not fully baked!", "yellow");
+    colorize(
+        "[!] Please note: this feature is not fully baked!",
+        "yellow",
+    );
     println!("Type .help for help");
 }
 
@@ -34,6 +40,21 @@ fn handle_command(input: &str, exit_code: i32) -> bool {
         }
         ".clear" => {
             clear();
+            true
+        }
+        ".answer_to_the_ultimate_question_of_life_the_universe_and_everything" => {
+            let mut chars = THE_ULTIMATE_QUESTION_AND_ANSWER.chars().peekable();
+            while let Some(c) = chars.next() {
+                print!("{}", c);
+                stdout().flush().unwrap();
+
+                if (c == '.' || c == '!' || c == '?') && chars.peek() != Some(&'.') {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+            }
+            println!();
             true
         }
         _ if input.starts_with('.') => {
@@ -89,7 +110,11 @@ pub fn start_repl(exit_code: i32) {
                     } else {
                         let result_str = JSValueToStringCopy(context, result, std::ptr::null_mut());
                         let mut buffer = [0u8; 1024];
-                        let length = JSStringGetUTF8CString(result_str, buffer.as_mut_ptr() as *mut i8, buffer.len());
+                        let length = JSStringGetUTF8CString(
+                            result_str,
+                            buffer.as_mut_ptr() as *mut i8,
+                            buffer.len(),
+                        );
 
                         if length > 0 {
                             let output = String::from_utf8_lossy(&buffer[..length as usize - 1]);

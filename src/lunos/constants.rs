@@ -30,3 +30,29 @@ pub const REPL_HELP: &str = r#"Lunos REPL help:
       .clear     clear the screen
       .version   show version info
 "#;
+pub const THE_ULTIMATE_QUESTION_AND_ANSWER: &str = r#"
+Both of the men had been trained for this moment, their lives had been a preparation for it, they had been selected at birth as those who would witness the answer, but even so they found themselves gasping and squirming like excited children.
+"And you're ready to give it to us?" urged Loonsuawl.
+"I am."
+"Now?"
+"Now," said Deep Thought.
+They both licked their dry lips.
+"Though I don't think," added Deep Thought, "that you're going to like it."
+"Doesn't matter!" said Phouchg. "We must know it! Now!"
+"Now?" inquired Deep Thought.
+"Yes! Now..."
+"All right," said the computer, and settled into silence again. The two men fidgeted. The tension was unbearable.
+"You're really not going to like it," observed Deep Thought.
+"Tell us!"
+"All right," said Deep Thought. "The Answer to the Great Question..."
+"Yes..!"
+"Of Life, the Universe and Everything..." said Deep Thought.
+"Yes...!"
+"Is..." said Deep Thought, and paused.
+"Yes...!"
+"Is..."
+"Yes...!!!...?"
+"Forty-two," said Deep Thought, with infinite majesty and calm.”
+
+― Douglas Adams, The Hitchhiker’s Guide to the Galaxy
+"#;
