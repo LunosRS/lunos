@@ -11,7 +11,7 @@ A blazingly fast JavaScript runtime written in Rust
 - FreeBSD
   - webkit2gtk4: `sudo pkg install webkit2gtk4`
 - Windows
-  - Dont use this trash os, but if you insist: [*Yikes*](.guides/WINDOWS.md)
+  - Dont use this trash os, but if you insist: [*Yikes*](docs/WINDOWS.md)
 
 ## Install
 ```bash
