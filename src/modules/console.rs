@@ -1,8 +1,8 @@
+use crate::utility::stdout::write_stdout;
 use javascriptcore_sys::*;
+use once_cell::sync::Lazy;
 use std::ffi::CString;
 use std::sync::Mutex;
-use std::io::{self, Write, BufWriter};
-use once_cell::sync::Lazy;
 
 const BUF_SIZE: usize = 1024 * 1024; // 1MB buffer
 const CHUNK_SIZE: usize = 1000; // Process logs in chunks
@@ -10,13 +10,13 @@ const CHUNK_SIZE: usize = 1000; // Process logs in chunks
 // Pre-compute color codes
 static COLORS: Lazy<JSColors> = Lazy::new(|| JSColors {
     null: b"\x1b[90m",      // Gray
-    undefined: b"\x1b[90m",  // Gray
-    boolean: b"\x1b[35m",    // Magenta
-    number: b"\x1b[33m",     // Yellow
-    string: b"",             // No color
-    array: b"\x1b[36m",      // Cyan
-    object: b"\x1b[34m",     // Blue
-    unknown: b"\x1b[37m",    // White
+    undefined: b"\x1b[90m", // Gray
+    boolean: b"\x1b[35m",   // Magenta
+    number: b"\x1b[33m",    // Yellow
+    string: b"",            // No color
+    array: b"\x1b[36m",     // Cyan
+    object: b"\x1b[34m",    // Blue
+    unknown: b"\x1b[37m",   // White
     reset: b"\x1b[0m",
 });
 
@@ -62,16 +62,29 @@ impl Console {
 
             // Pre-compute all CStrings
             let function_names = [
-                ("log", Self::log_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _),
-                ("warn", Self::warn_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _),
-                ("error", Self::error_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _),
-                ("flush", Self::flush_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _),
+                (
+                    "log",
+                    Self::log_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _,
+                ),
+                (
+                    "warn",
+                    Self::warn_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _,
+                ),
+                (
+                    "error",
+                    Self::error_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _,
+                ),
+                (
+                    "flush",
+                    Self::flush_callback as unsafe extern "C" fn(_, _, _, _, _, _) -> _,
+                ),
             ];
 
             for (name, callback) in function_names.iter() {
                 let name_cstr = CString::new(*name).unwrap();
                 let js_string = JSStringCreateWithUTF8CString(name_cstr.as_ptr());
-                let function = JSObjectMakeFunctionWithCallback(context, js_string, Some(*callback));
+                let function =
+                    JSObjectMakeFunctionWithCallback(context, js_string, Some(*callback));
                 JSObjectSetProperty(
                     context,
                     console,
@@ -98,7 +111,10 @@ impl Console {
     }
 
     #[inline(always)]
-    unsafe fn get_value_type(context: *const OpaqueJSContext, value: *const OpaqueJSValue) -> JSType {
+    unsafe fn get_value_type(
+        context: *const OpaqueJSContext,
+        value: *const OpaqueJSValue,
+    ) -> JSType {
         if JSValueIsNull(context, value) != false {
             JSType::Null
         } else if JSValueIsUndefined(context, value) != false {
@@ -151,10 +167,10 @@ impl Console {
         let c_string = JSStringGetCharactersPtr(js_string);
         let length = JSStringGetLength(js_string);
         let rust_string = String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length));
-        
+
         buffer.extend_from_slice(rust_string.as_bytes());
         buffer.extend_from_slice(COLORS.reset);
-        
+
         JSStringRelease(js_string);
     }
 
@@ -181,12 +197,12 @@ impl Console {
     ) -> *const OpaqueJSValue {
         let mut buffer = Console::get_instance().buffer.lock().unwrap();
         Self::process_arguments(argument_count, arguments, context, &mut buffer);
-        
+
         // Auto-flush on large chunks
         if buffer.len() >= CHUNK_SIZE {
             Self::flush_buffer(&mut buffer);
         }
-        
+
         JSValueMakeUndefined(context)
     }
 
@@ -235,10 +251,7 @@ impl Console {
 
     fn flush_buffer(buffer: &mut Vec<u8>) {
         if !buffer.is_empty() {
-            let stdout = io::stdout();
-            let mut writer = BufWriter::with_capacity(BUF_SIZE, stdout.lock());
-            let _ = writer.write_all(buffer);
-            let _ = writer.flush();
+            write_stdout(std::str::from_utf8(buffer).unwrap_or(""));
             buffer.clear();
         }
     }

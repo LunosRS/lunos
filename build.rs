@@ -1,6 +1,14 @@
 use core::panic;
 
 fn main() {
+    cc::Build::new()
+        .cpp(true)
+        .file("src/utility/stdout.cpp")
+        .include("include")
+        .flag_if_supported("-std=c++17")
+        .flag_if_supported("-O3")
+        .compile("fast_stdout");
+
     match get_os().as_str() {
         "macos" => build_macos(),
         "linux" => build_linux(),
@@ -9,6 +17,8 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/utility/stdout.cpp");
+    println!("cargo:rerun-if-changed=include/stdout.hpp");
 }
 
 fn build_macos() {

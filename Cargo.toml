@@ -28,3 +28,6 @@ opt-level = 3
 
 [profile.release.package."*"]
 opt-level = 3
+
+[build-dependencies]
+cc = "1.0"

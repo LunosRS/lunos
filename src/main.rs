@@ -1,5 +1,6 @@
 mod lunos;
 mod modules;
+mod utility;
 
 use javascriptcore_sys::*;
 use lunos::{help, repl, version};
