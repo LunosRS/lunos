@@ -2,7 +2,7 @@ mod lunos;
 mod modules;
 mod utility;
 
-use javascriptcore_sys::*;
+use rusty_jsc::*;
 use lunos::{help, repl, version};
 use std::env;
 use std::ffi::CString;
@@ -19,7 +19,6 @@ struct JSRuntime {
     context: *mut OpaqueJSContext,
 }
 
-// SAFETY: JSRuntime is only accessed from one thread at a time via thread_local
 unsafe impl Send for JSRuntime {}
 unsafe impl Sync for JSRuntime {}
 

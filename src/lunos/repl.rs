@@ -1,6 +1,6 @@
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType};
-use javascriptcore_sys::*;
+use rusty_jsc::*;
 use rustyline::DefaultEditor;
 use std::io::{stdout, Write};
 use std::{ffi::CString, process};

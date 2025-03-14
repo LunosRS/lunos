@@ -1,4 +1,4 @@
-extern "C" {
+unsafe extern "C" {
     #[link_name = "lunos_fast_stdout_writer"]
     fn lunos_fast_stdout_writer_cpp(buf: *const i8, len: usize) -> usize;
 }

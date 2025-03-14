@@ -191,14 +191,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "javascriptcore-sys"
-version = "0.1.42"
-source = "git+https://github.com/LunosRS/jsc.git?branch=main#3f691d3fce75b76c7cc89eff4c4e73793ae97f77"
-dependencies = [
- "pkg-config",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.169"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,10 +224,11 @@ version = "0.6.5"
 dependencies = [
  "cc",
  "crossterm",
- "javascriptcore-sys",
+ "mime_guess",
  "num_cpus",
  "once_cell",
  "rayon",
+ "rusty_jsc",
  "rustyline",
  "tokio",
 ]
@@ -245,6 +238,22 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
+
+[[package]]
+name = "mime"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -425,6 +434,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty_jsc"
+version = "0.1.42"
+source = "git+https://github.com/LunosRS/rusty_jsc.git?branch=main#c8f70870b98040eeae01c6c89b28853e2d43904f"
+dependencies = [
+ "pkg-config",
+]
+
+[[package]]
 name = "rustyline"
 version = "15.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -543,6 +560,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b844d17643ee918803943289730bec8aac480150456169e647ed0b576ba539"
 
 [[package]]
 name = "unicode-ident"

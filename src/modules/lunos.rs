@@ -1,8 +1,12 @@
-use javascriptcore_sys::*;
-use std::{ffi::CString, thread};
-use std::sync::Arc;
+use rusty_jsc::*;
+use mime_guess;
+use std::ffi::CString;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::runtime::Runtime;
 
 pub struct Lunos;
@@ -50,70 +54,262 @@ impl Lunos {
         _: *mut *const OpaqueJSValue,
     ) -> *const OpaqueJSValue {
         if argument_count < 1 {
-            eprintln!("Lunos.serve expects 1 argument (a configuration object).");
-            return JSValueMakeUndefined(context);
+            let error_message = "serve() requires an options object";
+            let js_error_message = unsafe {
+                JSStringCreateWithUTF8CString(error_message.as_ptr() as *const i8)
+            };
+            unsafe { JSStringRelease(js_error_message) };
+            return unsafe { JSValueMakeUndefined(context) };
         }
 
-        let config = *arguments.add(0);
-        if JSValueIsObject(context, config) == false {
-            eprintln!("Argument to Lunos.serve must be an object.");
-            return JSValueMakeUndefined(context);
+        let options_object = unsafe { *arguments };
+        if unsafe { !JSValueIsObject(context, options_object) } {
+            let error_message = "serve() requires an options object";
+            let js_error_message = unsafe {
+                JSStringCreateWithUTF8CString(error_message.as_ptr() as *const i8)
+            };
+            unsafe { JSStringRelease(js_error_message) };
+            return unsafe { JSValueMakeUndefined(context) };
         }
 
-        let port = Self::get_property_as_u16(context, config, "port");
-        if port.is_none() {
-            eprintln!("Invalid or missing 'port' property in configuration object.");
-            return JSValueMakeUndefined(context);
-        }
+        let response_text = unsafe { Self::get_property_as_string(context, options_object, "responseText") }
+            .unwrap_or_default();
+        let content_type = unsafe { Self::get_property_as_string(context, options_object, "contentType") }
+            .or_else(|| unsafe { Self::get_property_as_string(context, options_object, "type") })
+            .unwrap_or_else(|| "text/plain".to_string());
+        let port = unsafe { Self::get_property_as_u16(context, options_object, "port") }.unwrap_or(9595);
+        let static_dir =
+            unsafe { Self::get_property_as_string(context, options_object, "dir") }.map(PathBuf::from);
+        let log_middleware =
+            unsafe { Self::get_property_as_bool(context, options_object, "logMiddleware") }.unwrap_or(false);
 
-        let port = port.unwrap();
-        let content_type = Self::get_property_as_string(context, config, "type").unwrap_or("text/plain".to_string());
-        let response_text = Self::get_property_as_string(context, config, "return").unwrap_or("Hello, World!".to_string());
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async move {
+            let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+                .await
+                .unwrap();
+            println!("Server listening on port {}", port);
+            if static_dir.is_some() {
+                println!(
+                    "Serving static files from {}",
+                    static_dir.as_ref().unwrap().display()
+                );
+            }
 
-        // Create a new tokio runtime
-        let runtime = Runtime::new().unwrap();
-        
-        // Spawn the async server in a new thread
-        thread::spawn(move || {
-            runtime.block_on(async move {
-                let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
-                println!("Listening on :{}", port);
+            loop {
+                match listener.accept().await {
+                    Ok((stream, addr)) => {
+                        let response_text = response_text.clone();
+                        let content_type = content_type.clone();
+                        let static_dir_owned = static_dir.as_ref().map(|p| p.to_owned());
 
-                let response_text = Arc::new(response_text);
-                let content_type = Arc::new(content_type);
-
-                loop {
-                    let (socket, _) = listener.accept().await.unwrap();
-                    let response_text = Arc::clone(&response_text);
-                    let content_type = Arc::clone(&content_type);
-
-                    tokio::spawn(async move {
-                        Self::handle_connection(socket, &response_text, &content_type).await;
-                    });
+                        tokio::spawn(async move {
+                            if let Err(e) = Self::handle_connection(
+                                stream,
+                                &response_text,
+                                &content_type,
+                                static_dir_owned,
+                                log_middleware,
+                            )
+                            .await
+                            {
+                                eprintln!("Error handling connection from {}: {}", addr, e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Error accepting connection: {}", e);
+                    }
                 }
-            });
+            }
         });
 
-        thread::park();
-        JSValueMakeUndefined(context)
+        let result_message = format!("Server started on port {}", port);
+        let js_result_message = unsafe { JSStringCreateWithUTF8CString(result_message.as_ptr() as *const i8) };
+        let js_result = unsafe { JSValueMakeString(context, js_result_message) };
+        unsafe { JSStringRelease(js_result_message) };
+        js_result
     }
 
-    async fn handle_connection(mut stream: TcpStream, response_text: &str, content_type: &str) {
-        let response = format!(
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: {}\r\n\
-             Content-Length: {}\r\n\
-             Connection: keep-alive\r\n\
-             \r\n\
-             {}",
-            content_type,
-            response_text.len(),
-            response_text
-        );
+    async fn handle_connection(
+        mut stream: TcpStream,
+        response_text: &str,
+        content_type: &str,
+        static_dir: Option<PathBuf>,
+        log_middleware: bool,
+    ) -> std::io::Result<()> {
+        let mut buffer = [0; 1024];
+        let bytes_read = stream.read(&mut buffer).await?;
+        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
 
-        let mut writer = BufWriter::new(&mut stream);
-        let _ = writer.write_all(response.as_bytes()).await;
-        let _ = writer.flush().await;
+        let (method, request_path) = if let Some(method_end) = request.find(' ') {
+            let method = &request[..method_end];
+            if let Some(path_start) = request[method_end + 1..].find(' ') {
+                let path = &request[method_end + 1..method_end + 1 + path_start];
+                (method.to_string(), path.to_string())
+            } else {
+                ("UNKNOWN".to_string(), "/".to_string())
+            }
+        } else {
+            ("UNKNOWN".to_string(), "/".to_string())
+        };
+
+        let mut status_code = 200;
+
+        let path_opt = if let Some(path_start) = request.find("GET ") {
+            let path_end = request[path_start + 4..]
+                .find(' ')
+                .unwrap_or(request.len() - path_start - 4);
+            let raw_path = &request[path_start + 4..path_start + 4 + path_end];
+            if raw_path == "/" {
+                Some("index.html".to_string())
+            } else {
+                Some(raw_path.trim_start_matches('/').to_string())
+            }
+        } else {
+            None
+        };
+
+        if path_opt.is_none() {
+            if log_middleware {
+                let now = SystemTime::now();
+                let duration = now.duration_since(UNIX_EPOCH).unwrap();
+                let secs = duration.as_secs();
+                let millis = duration.subsec_millis();
+
+                let date_time = {
+                    let secs_since_epoch = secs;
+                    let days_since_epoch = secs_since_epoch / 86400;
+                    let secs_in_day = secs_since_epoch % 86400;
+
+                    let years_since_epoch = days_since_epoch / 365;
+                    let year = 1970 + years_since_epoch;
+
+                    let mut days_in_year = days_since_epoch % 365;
+                    let mut month = 1;
+
+                    // fuck leap years
+                    let days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                    for days in days_in_month.iter() {
+                        if days_in_year < *days {
+                            break;
+                        }
+                        days_in_year -= *days;
+                        month += 1;
+                        if month > 12 {
+                            break;
+                        }
+                    }
+
+                    let day = days_in_year + 1;
+
+                    let hours = secs_in_day / 3600;
+                    let minutes = (secs_in_day % 3600) / 60;
+                    let seconds = secs_in_day % 60;
+
+                    format!(
+                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                        year, month, day, hours, minutes, seconds, millis
+                    )
+                };
+
+                status_code = 400;
+                println!(
+                    "{} [Lunos INFO]: {} ..... {} ..... {}",
+                    date_time, request_path, method, status_code
+                );
+            }
+            return Ok(());
+        }
+
+        let path = path_opt.unwrap();
+
+        if response_text.is_empty() && static_dir.is_some() {
+            let file_path = static_dir.unwrap().join(&path);
+            if file_path.exists() && file_path.is_file() {
+                let mime_type = mime_guess::from_path(&file_path)
+                    .first_or_octet_stream()
+                    .to_string();
+
+                let content = fs::read(&file_path)?;
+
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+                    mime_type,
+                    content.len()
+                );
+
+                stream.write_all(response.as_bytes()).await?;
+                stream.write_all(&content).await?;
+            } else {
+                status_code = 404;
+                let not_found = "404 Not Found";
+                let response = format!(
+                    "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    not_found.len(),
+                    not_found
+                );
+                stream.write_all(response.as_bytes()).await?;
+            }
+        } else {
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                content_type,
+                response_text.len(),
+                response_text
+            );
+
+            stream.write_all(response.as_bytes()).await?;
+        }
+
+        if log_middleware {
+            let now = SystemTime::now();
+            let duration = now.duration_since(UNIX_EPOCH).unwrap();
+            let secs = duration.as_secs();
+            let millis = duration.subsec_millis();
+
+            let date_time = {
+                let secs_since_epoch = secs;
+                let days_since_epoch = secs_since_epoch / 86400;
+                let secs_in_day = secs_since_epoch % 86400;
+
+                let years_since_epoch = days_since_epoch / 365;
+                let year = 1970 + years_since_epoch;
+
+                let mut days_in_year = days_since_epoch % 365;
+                let mut month = 1;
+
+                let days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                for days in days_in_month.iter() {
+                    if days_in_year < *days {
+                        break;
+                    }
+                    days_in_year -= *days;
+                    month += 1;
+                    if month > 12 {
+                        break;
+                    }
+                }
+
+                let day = days_in_year + 1;
+
+                let hours = secs_in_day / 3600;
+                let minutes = (secs_in_day % 3600) / 60;
+                let seconds = secs_in_day % 60;
+
+                format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                    year, month, day, hours, minutes, seconds, millis
+                )
+            };
+
+            println!(
+                "{} [Lunos INFO]: {} ..... {} ..... {}",
+                date_time, request_path, method, status_code
+            );
+        }
+
+        Ok(())
     }
 
     unsafe fn get_property_as_string(
@@ -122,17 +318,24 @@ impl Lunos {
         property_name: &str,
     ) -> Option<String> {
         let property_name_cstring = CString::new(property_name).unwrap();
-        let property_name = JSStringCreateWithUTF8CString(property_name_cstring.as_ptr());
-        let property_value = JSObjectGetProperty(context, object as *mut _, property_name, std::ptr::null_mut());
-        JSStringRelease(property_name);
+        let property_name = unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
+        let property_value = unsafe { JSObjectGetProperty(
+            context,
+            object as *mut _,
+            property_name,
+            std::ptr::null_mut(),
+        ) };
+        unsafe { JSStringRelease(property_name) };
 
-        if JSValueIsString(context, property_value) != false {
-            let js_string = JSValueToStringCopy(context, property_value, std::ptr::null_mut());
-            let c_string = JSStringGetCharactersPtr(js_string);
-            let length = JSStringGetLength(js_string);
+        if unsafe { JSValueIsString(context, property_value) } != false {
+            let js_string = unsafe { JSValueToStringCopy(context, property_value, std::ptr::null_mut()) };
+            let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
+            let length = unsafe { JSStringGetLength(js_string) };
 
-            let rust_string = String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length));
-            JSStringRelease(js_string);
+            let rust_string = unsafe {
+                String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length))
+            };
+            unsafe { JSStringRelease(js_string) };
 
             Some(rust_string)
         } else {
@@ -146,12 +349,39 @@ impl Lunos {
         property_name: &str,
     ) -> Option<u16> {
         let property_name_cstring = CString::new(property_name).unwrap();
-        let property_name = JSStringCreateWithUTF8CString(property_name_cstring.as_ptr());
-        let property_value = JSObjectGetProperty(context, object as *mut _, property_name, std::ptr::null_mut());
-        JSStringRelease(property_name);
+        let property_name = unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
+        let property_value = unsafe { JSObjectGetProperty(
+            context,
+            object as *mut _,
+            property_name,
+            std::ptr::null_mut(),
+        ) };
+        unsafe { JSStringRelease(property_name) };
 
-        if JSValueIsNumber(context, property_value) != false {
-            Some(JSValueToNumber(context, property_value, std::ptr::null_mut()) as u16)
+        if unsafe { JSValueIsNumber(context, property_value) } != false {
+            Some(unsafe { JSValueToNumber(context, property_value, std::ptr::null_mut()) } as u16)
+        } else {
+            None
+        }
+    }
+
+    unsafe fn get_property_as_bool(
+        context: *const OpaqueJSContext,
+        object: *const OpaqueJSValue,
+        property_name: &str,
+    ) -> Option<bool> {
+        let property_name_cstring = CString::new(property_name).unwrap();
+        let property_name = unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
+        let property_value = unsafe { JSObjectGetProperty(
+            context,
+            object as *mut _,
+            property_name,
+            std::ptr::null_mut(),
+        ) };
+        unsafe { JSStringRelease(property_name) };
+
+        if unsafe { JSValueIsBoolean(context, property_value) } != false {
+            Some(unsafe { JSValueToBoolean(context, property_value) } != false)
         } else {
             None
         }

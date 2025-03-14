@@ -1,14 +1,13 @@
 use crate::utility::stdout::write_stdout;
-use javascriptcore_sys::*;
+use rusty_jsc::*;
 use once_cell::sync::Lazy;
 use std::ffi::CString;
 use std::sync::Mutex;
 use std::mem::MaybeUninit;
 
-const BUF_SIZE: usize = 1024 * 1024; // 1MB buffer
-const CHUNK_SIZE: usize = 1000; // Process logs in chunks
+const BUF_SIZE: usize = 1024 * 1024;
+const CHUNK_SIZE: usize = 1000;
 
-// Pre-compute color codes as static byte slices
 static COLORS: Lazy<JSColors> = Lazy::new(|| JSColors {
     null: b"\x1b[90m",      // Gray
     undefined: b"\x1b[90m", // Gray
@@ -18,7 +17,7 @@ static COLORS: Lazy<JSColors> = Lazy::new(|| JSColors {
     array: b"\x1b[36m",     // Cyan
     object: b"\x1b[34m",    // Blue
     unknown: b"\x1b[37m",   // White
-    reset: b"\x1b[0m",
+    reset: b"\x1b[0m",      // Reset
 });
 
 type JSCallback = unsafe extern "C" fn(
@@ -30,7 +29,6 @@ type JSCallback = unsafe extern "C" fn(
     *mut *const OpaqueJSValue,
 ) -> *const OpaqueJSValue;
 
-// Pre-compute function names as static CStrings
 static FUNCTION_NAMES: Lazy<[(CString, JSCallback); 4]> = Lazy::new(|| [
     (CString::new("log").unwrap(), Console::log_callback),
     (CString::new("warn").unwrap(), Console::warn_callback),
@@ -82,7 +80,6 @@ impl Console {
             let global_object = JSContextGetGlobalObject(context);
             let console = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
 
-            // Bind all functions
             for (name, callback) in FUNCTION_NAMES.iter() {
                 let js_string = JSStringCreateWithUTF8CString(name.as_ptr());
                 let function = JSObjectMakeFunctionWithCallback(context, js_string, Some(*callback));
@@ -115,24 +112,26 @@ impl Console {
         context: *const OpaqueJSContext,
         value: *const OpaqueJSValue,
     ) -> JSType {
-        if JSValueIsNull(context, value) != false {
-            JSType::Null
-        } else if JSValueIsUndefined(context, value) != false {
-            JSType::Undefined
-        } else if JSValueIsBoolean(context, value) != false {
-            JSType::Boolean
-        } else if JSValueIsNumber(context, value) != false {
-            JSType::Number
-        } else if JSValueIsString(context, value) != false {
-            JSType::String
-        } else if JSValueIsObject(context, value) != false {
-            if JSValueIsArray(context, value) != false {
-                JSType::Array
+        unsafe {
+            if JSValueIsNull(context, value) != false {
+                JSType::Null
+            } else if JSValueIsUndefined(context, value) != false {
+                JSType::Undefined
+            } else if JSValueIsBoolean(context, value) != false {
+                JSType::Boolean
+            } else if JSValueIsNumber(context, value) != false {
+                JSType::Number
+            } else if JSValueIsString(context, value) != false {
+                JSType::String
+            } else if JSValueIsObject(context, value) != false {
+                if JSValueIsArray(context, value) != false {
+                    JSType::Array
+                } else {
+                    JSType::Object
+                }
             } else {
-                JSType::Object
+                JSType::Unknown
             }
-        } else {
-            JSType::Unknown
         }
     }
 
@@ -161,39 +160,36 @@ impl Console {
             buffer.push(b' ');
         }
 
-        let value_type = Self::get_value_type(context, arg);
-        buffer.extend_from_slice(Self::get_value_color(value_type));
+        let value_type = unsafe { Self::get_value_type(context, arg) };
+        buffer.extend_from_slice(unsafe { Self::get_value_color(value_type) });
 
-        let js_string = JSValueToStringCopy(context, arg, std::ptr::null_mut());
-        let c_string = JSStringGetCharactersPtr(js_string);
-        let length = JSStringGetLength(js_string);
-        
-        // Avoid allocation for small strings by using a stack buffer
+        let js_string = unsafe { JSValueToStringCopy(context, arg, std::ptr::null_mut()) };
+        let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
+        let length = unsafe { JSStringGetLength(js_string) };
+
         if length < 128 {
             let mut stack_buf = [MaybeUninit::<u8>::uninit(); 256];
             let mut pos = 0;
             for i in 0..length {
-                let c = *c_string.add(i);
+                let c = unsafe { *c_string.add(i) };
                 if c < 128 {
                     stack_buf[pos].write(c as u8);
                     pos += 1;
                 } else {
-                    // UTF-16 to UTF-8 conversion for non-ASCII
                     let bytes = (c as u16).to_le_bytes();
                     stack_buf[pos].write(bytes[0]);
                     stack_buf[pos + 1].write(bytes[1]);
                     pos += 2;
                 }
             }
-            buffer.extend_from_slice(std::slice::from_raw_parts(stack_buf.as_ptr() as *const u8, pos));
+            buffer.extend_from_slice(unsafe { std::slice::from_raw_parts(stack_buf.as_ptr() as *const u8, pos) });
         } else {
-            // Fall back to String allocation for large strings
-            let rust_string = String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length));
+            let rust_string = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(c_string, length) });
             buffer.extend_from_slice(rust_string.as_bytes());
         }
 
         buffer.extend_from_slice(COLORS.reset);
-        JSStringRelease(js_string);
+        unsafe { JSStringRelease(js_string) };
     }
 
     #[inline(always)]
@@ -204,8 +200,8 @@ impl Console {
         buffer: &mut Vec<u8>,
     ) {
         for i in 0..argument_count {
-            let arg = *arguments.add(i);
-            Self::write_value(context, arg, buffer, i == 0);
+            let arg = unsafe { *arguments.add(i) };
+            unsafe { Self::write_value(context, arg, buffer, i == 0) };
         }
         buffer.push(b'\n');
     }
@@ -219,15 +215,14 @@ impl Console {
         _: *mut *const OpaqueJSValue,
     ) -> *const OpaqueJSValue {
         if let Ok(mut buffer) = Console::get_instance().buffer.lock() {
-            Self::process_arguments(argument_count, arguments, context, &mut buffer);
+            unsafe { Self::process_arguments(argument_count, arguments, context, &mut buffer) };
 
-            // Auto-flush on large chunks
             if buffer.len() >= CHUNK_SIZE {
                 Self::flush_buffer(&mut buffer);
             }
         }
 
-        JSValueMakeUndefined(context)
+        unsafe { JSValueMakeUndefined(context) }
     }
 
     unsafe extern "C" fn warn_callback(
@@ -240,10 +235,10 @@ impl Console {
     ) -> *const OpaqueJSValue {
         if let Ok(mut buffer) = Console::get_instance().buffer.lock() {
             buffer.extend_from_slice(COLORS.number);
-            Self::process_arguments(argument_count, arguments, context, &mut buffer);
+            unsafe { Self::process_arguments(argument_count, arguments, context, &mut buffer) };
             buffer.extend_from_slice(COLORS.reset);
         }
-        JSValueMakeUndefined(context)
+        unsafe { JSValueMakeUndefined(context) }
     }
 
     unsafe extern "C" fn error_callback(
@@ -256,10 +251,10 @@ impl Console {
     ) -> *const OpaqueJSValue {
         if let Ok(mut buffer) = Console::get_instance().buffer.lock() {
             buffer.extend_from_slice(b"\x1b[31m");
-            Self::process_arguments(argument_count, arguments, context, &mut buffer);
+            unsafe { Self::process_arguments(argument_count, arguments, context, &mut buffer) };
             buffer.extend_from_slice(COLORS.reset);
         }
-        JSValueMakeUndefined(context)
+        unsafe { JSValueMakeUndefined(context) }
     }
 
     unsafe extern "C" fn flush_callback(
@@ -273,13 +268,12 @@ impl Console {
         if let Ok(mut buffer) = Console::get_instance().buffer.lock() {
             Self::flush_buffer(&mut buffer);
         }
-        JSValueMakeUndefined(context)
+        unsafe { JSValueMakeUndefined(context) }
     }
 
     #[inline(always)]
     fn flush_buffer(buffer: &mut Vec<u8>) {
         if !buffer.is_empty() {
-            // SAFETY: We know the buffer only contains valid UTF-8
             unsafe {
                 write_stdout(std::str::from_utf8_unchecked(buffer));
             }
@@ -289,7 +283,7 @@ impl Console {
 
     #[inline(always)]
     fn get_instance() -> &'static Console {
-        static INSTANCE: once_cell::sync::Lazy<Console> = once_cell::sync::Lazy::new(Console::new);
+        static INSTANCE: Lazy<Console> = Lazy::new(Console::new);
         &INSTANCE
     }
 }
