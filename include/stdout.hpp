@@ -22,53 +22,51 @@ namespace lunos_fast_stdout {
             static constexpr int STD_OUT_HANDLE = -11;
         #endif
 
-        inline size_t write_stdout(const char* buf, size_t len) {
+        [[gnu::always_inline]] inline size_t write_stdout(const char* buf, size_t len) {
             size_t ret = 0;
 
             #if defined(__APPLE__) && defined(__arm64__)
-                // ARM64 macOS
-                uint64_t x0 = STD_OUT;
-                uint64_t x1 = (uint64_t)buf;
-                uint64_t x2 = len;
-                uint64_t x16 = WRITE_SYSCALL;
+                // ARM64 macOS - optimized to use fewer moves
+                register uint64_t x0 asm("x0") = STD_OUT;
+                register uint64_t x1 asm("x1") = (uint64_t)buf;
+                register uint64_t x2 asm("x2") = len;
+                register uint64_t x16 asm("x16") = WRITE_SYSCALL;
 
                 asm volatile(
-                    "mov x0, %1\n"
-                    "mov x1, %2\n"
-                    "mov x2, %3\n"
-                    "mov x16, %4\n"
-                    "svc #0x80\n"
-                    "mov %0, x0"
-                    : "=r"(ret)
-                    : "r"(x0), "r"(x1), "r"(x2), "r"(x16)
-                    : "x0", "x1", "x2", "x16", "memory", "cc"
+                    "svc #0x80"
+                    : "+r"(x0)
+                    : "r"(x1), "r"(x2), "r"(x16)
+                    : "memory", "cc"
                 );
+                ret = x0;
             #elif defined(__APPLE__) && defined(__x86_64__)
-                // x86_64 Intel macOS
+                // x86_64 Intel macOS - optimized register allocation
+                register size_t rax asm("rax") = WRITE_SYSCALL;
+                register size_t rdi asm("rdi") = STD_OUT;
+                register size_t rsi asm("rsi") = (size_t)buf;
+                register size_t rdx asm("rdx") = len;
+
                 asm volatile(
-                    "movq %1, %%rdi\n"
-                    "movq %2, %%rsi\n"
-                    "movq %3, %%rdx\n"
-                    "movq %4, %%rax\n"
-                    "syscall\n"
-                    "movq %%rax, %0\n"
-                    : "=r"(ret)
-                    : "g"((size_t)STD_OUT), "g"((size_t)buf), "g"(len), "g"((size_t)WRITE_SYSCALL)
-                    : "rax", "rdi", "rsi", "rdx", "rcx", "r11", "memory"
+                    "syscall"
+                    : "+r"(rax)
+                    : "r"(rdi), "r"(rsi), "r"(rdx)
+                    : "rcx", "r11", "memory"
                 );
+                ret = rax;
             #elif defined(__linux__) && defined(__x86_64__)
-                // x86_64 Linux
+                // x86_64 Linux - optimized register allocation
+                register size_t rax asm("rax") = WRITE_SYSCALL;
+                register size_t rdi asm("rdi") = STD_OUT;
+                register size_t rsi asm("rsi") = (size_t)buf;
+                register size_t rdx asm("rdx") = len;
+
                 asm volatile(
-                    "movq %1, %%rdi\n"
-                    "movq %2, %%rsi\n"
-                    "movq %3, %%rdx\n"
-                    "movq %4, %%rax\n"
-                    "syscall\n"
-                    "movq %%rax, %0\n"
-                    : "=r"(ret)
-                    : "g"((size_t)STD_OUT), "g"((size_t)buf), "g"(len), "g"((size_t)WRITE_SYSCALL)
-                    : "rax", "rdi", "rsi", "rdx", "rcx", "r11", "memory"
+                    "syscall"
+                    : "+r"(rax)
+                    : "r"(rdi), "r"(rsi), "r"(rdx)
+                    : "rcx", "r11", "memory"
                 );
+                ret = rax;
             #elif defined(_WIN32)
                 // Windows
                 HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -85,9 +83,18 @@ namespace lunos_fast_stdout {
         }
     }
 
-    inline void write_line(const char* buf, size_t len) {
-        detail::write_stdout(buf, len);
-        const char newline = '\n';
-        detail::write_stdout(&newline, 1);
+    [[gnu::always_inline]] inline void write_line(const char* buf, size_t len) {
+        // Allocate space on stack for buffer + newline
+        char stack_buf[256];
+        if (len < 255) {
+            // Fast path - use stack buffer
+            __builtin_memcpy(stack_buf, buf, len);
+            stack_buf[len] = '\n';
+            detail::write_stdout(stack_buf, len + 1);
+        } else {
+            // Slow path - use two writes
+            detail::write_stdout(buf, len);
+            detail::write_stdout("\n", 1);
+        }
     }
 }

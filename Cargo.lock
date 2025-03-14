@@ -192,8 +192,8 @@ dependencies = [
 
 [[package]]
 name = "javascriptcore-sys"
-version = "0.0.6"
-source = "git+https://github.com/LunosRS/jsc.git?branch=main#977ea58bf39c2550c5fc87a0dfa44b0e65a2102f"
+version = "0.1.42"
+source = "git+https://github.com/LunosRS/jsc.git?branch=main#3f691d3fce75b76c7cc89eff4c4e73793ae97f77"
 dependencies = [
  "pkg-config",
 ]
@@ -228,7 +228,7 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
 name = "lunos"
-version = "0.6.3"
+version = "0.6.5"
 dependencies = [
  "cc",
  "crossterm",
