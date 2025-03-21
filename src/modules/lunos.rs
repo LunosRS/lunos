@@ -83,6 +83,10 @@ impl Lunos {
         std::env::args().skip(1).collect()
     }
 
+    pub fn exit(status: i32) {
+        std::process::exit(status);
+    }
+
     unsafe extern "C" fn argv_callback(
         context: *const OpaqueJSContext,
         _: *mut OpaqueJSValue,
