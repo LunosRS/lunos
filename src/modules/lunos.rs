@@ -1,9 +1,10 @@
-use rusty_jsc::*;
 use mime_guess;
+use rusty_jsc::*;
 use std::ffi::CString;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::process::exit;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -38,6 +39,13 @@ impl Lunos {
                 Some(Self::argv_callback),
             );
 
+            let exit_name = CString::new("exit").unwrap();
+            let exit_function = JSObjectMakeFunctionWithCallback(
+                context,
+                JSStringCreateWithUTF8CString(exit_name.as_ptr()),
+                Some(Self::exit_callback),
+            );
+
             let lunos_object = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
 
             JSObjectSetProperty(
@@ -67,6 +75,15 @@ impl Lunos {
                 std::ptr::null_mut(),
             );
 
+            JSObjectSetProperty(
+                context,
+                lunos_object,
+                JSStringCreateWithUTF8CString(exit_name.as_ptr()),
+                exit_function,
+                kJSPropertyAttributeNone,
+                std::ptr::null_mut(),
+            );
+
             let lunos_name = CString::new("Lunos").unwrap();
             JSObjectSetProperty(
                 context,
@@ -83,10 +100,6 @@ impl Lunos {
         std::env::args().skip(1).collect()
     }
 
-    pub fn exit(status: i32) {
-        std::process::exit(status);
-    }
-
     unsafe extern "C" fn argv_callback(
         context: *const OpaqueJSContext,
         _: *mut OpaqueJSValue,
@@ -96,7 +109,8 @@ impl Lunos {
         _: *mut *const OpaqueJSValue,
     ) -> *const OpaqueJSValue {
         let args = Self::argv();
-        let js_array = unsafe { JSObjectMakeArray(context, 0, std::ptr::null(), std::ptr::null_mut()) };
+        let js_array =
+            unsafe { JSObjectMakeArray(context, 0, std::ptr::null(), std::ptr::null_mut()) };
 
         for (i, arg) in args.iter().enumerate() {
             let arg_cstring = CString::new(arg.clone()).unwrap();
@@ -128,9 +142,8 @@ impl Lunos {
     ) -> *const OpaqueJSValue {
         if argument_count < 1 {
             let error_message = "serve() requires an options object";
-            let js_error_message = unsafe {
-                JSStringCreateWithUTF8CString(error_message.as_ptr() as *const i8)
-            };
+            let js_error_message =
+                unsafe { JSStringCreateWithUTF8CString(error_message.as_ptr() as *const i8) };
             unsafe { JSStringRelease(js_error_message) };
             return unsafe { JSValueMakeUndefined(context) };
         }
@@ -138,23 +151,28 @@ impl Lunos {
         let options_object = unsafe { *arguments };
         if unsafe { !JSValueIsObject(context, options_object) } {
             let error_message = "serve() requires an options object";
-            let js_error_message = unsafe {
-                JSStringCreateWithUTF8CString(error_message.as_ptr() as *const i8)
-            };
+            let js_error_message =
+                unsafe { JSStringCreateWithUTF8CString(error_message.as_ptr() as *const i8) };
             unsafe { JSStringRelease(js_error_message) };
             return unsafe { JSValueMakeUndefined(context) };
         }
 
-        let response_text = unsafe { Self::get_property_as_string(context, options_object, "responseText") }
-            .unwrap_or_default();
-        let content_type = unsafe { Self::get_property_as_string(context, options_object, "contentType") }
-            .or_else(|| unsafe { Self::get_property_as_string(context, options_object, "type") })
-            .unwrap_or_else(|| "text/plain".to_string());
-        let port = unsafe { Self::get_property_as_u16(context, options_object, "port") }.unwrap_or(9595);
-        let static_dir =
-            unsafe { Self::get_property_as_string(context, options_object, "dir") }.map(PathBuf::from);
+        let response_text =
+            unsafe { Self::get_property_as_string(context, options_object, "responseText") }
+                .unwrap_or_default();
+        let content_type =
+            unsafe { Self::get_property_as_string(context, options_object, "contentType") }
+                .or_else(|| unsafe {
+                    Self::get_property_as_string(context, options_object, "type")
+                })
+                .unwrap_or_else(|| "text/plain".to_string());
+        let port =
+            unsafe { Self::get_property_as_u16(context, options_object, "port") }.unwrap_or(9595);
+        let static_dir = unsafe { Self::get_property_as_string(context, options_object, "dir") }
+            .map(PathBuf::from);
         let log_middleware =
-            unsafe { Self::get_property_as_bool(context, options_object, "logMiddleware") }.unwrap_or(false);
+            unsafe { Self::get_property_as_bool(context, options_object, "logMiddleware") }
+                .unwrap_or(false);
 
         let rt = Runtime::new().unwrap();
         rt.block_on(async move {
@@ -198,7 +216,8 @@ impl Lunos {
         });
 
         let result_message = format!("Server started on port {}", port);
-        let js_result_message = unsafe { JSStringCreateWithUTF8CString(result_message.as_ptr() as *const i8) };
+        let js_result_message =
+            unsafe { JSStringCreateWithUTF8CString(result_message.as_ptr() as *const i8) };
         let js_result = unsafe { JSValueMakeString(context, js_result_message) };
         unsafe { JSStringRelease(js_result_message) };
         js_result
@@ -210,7 +229,7 @@ impl Lunos {
         content_type: &str,
         static_dir: Option<PathBuf>,
         log_middleware: bool,
-    ) -> std::io::Result<()> {
+    ) -> io::Result<()> {
         let mut buffer = [0; 1024];
         let bytes_read = stream.read(&mut buffer).await?;
         let request = String::from_utf8_lossy(&buffer[..bytes_read]);
@@ -391,23 +410,26 @@ impl Lunos {
         property_name: &str,
     ) -> Option<String> {
         let property_name_cstring = CString::new(property_name).unwrap();
-        let property_name = unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
-        let property_value = unsafe { JSObjectGetProperty(
-            context,
-            object as *mut _,
-            property_name,
-            std::ptr::null_mut(),
-        ) };
+        let property_name =
+            unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
+        let property_value = unsafe {
+            JSObjectGetProperty(
+                context,
+                object as *mut _,
+                property_name,
+                std::ptr::null_mut(),
+            )
+        };
         unsafe { JSStringRelease(property_name) };
 
         if unsafe { JSValueIsString(context, property_value) } != false {
-            let js_string = unsafe { JSValueToStringCopy(context, property_value, std::ptr::null_mut()) };
+            let js_string =
+                unsafe { JSValueToStringCopy(context, property_value, std::ptr::null_mut()) };
             let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
             let length = unsafe { JSStringGetLength(js_string) };
 
-            let rust_string = unsafe {
-                String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length))
-            };
+            let rust_string =
+                unsafe { String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length)) };
             unsafe { JSStringRelease(js_string) };
 
             Some(rust_string)
@@ -422,13 +444,16 @@ impl Lunos {
         property_name: &str,
     ) -> Option<u16> {
         let property_name_cstring = CString::new(property_name).unwrap();
-        let property_name = unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
-        let property_value = unsafe { JSObjectGetProperty(
-            context,
-            object as *mut _,
-            property_name,
-            std::ptr::null_mut(),
-        ) };
+        let property_name =
+            unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
+        let property_value = unsafe {
+            JSObjectGetProperty(
+                context,
+                object as *mut _,
+                property_name,
+                std::ptr::null_mut(),
+            )
+        };
         unsafe { JSStringRelease(property_name) };
 
         if unsafe { JSValueIsNumber(context, property_value) } != false {
@@ -444,13 +469,16 @@ impl Lunos {
         property_name: &str,
     ) -> Option<bool> {
         let property_name_cstring = CString::new(property_name).unwrap();
-        let property_name = unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
-        let property_value = unsafe { JSObjectGetProperty(
-            context,
-            object as *mut _,
-            property_name,
-            std::ptr::null_mut(),
-        ) };
+        let property_name =
+            unsafe { JSStringCreateWithUTF8CString(property_name_cstring.as_ptr()) };
+        let property_value = unsafe {
+            JSObjectGetProperty(
+                context,
+                object as *mut _,
+                property_name,
+                std::ptr::null_mut(),
+            )
+        };
         unsafe { JSStringRelease(property_name) };
 
         if unsafe { JSValueIsBoolean(context, property_value) } != false {
@@ -474,7 +502,8 @@ impl Lunos {
             let prompt_arg = unsafe { *arguments };
 
             if unsafe { JSValueIsString(context, prompt_arg) } != false {
-                let js_string = unsafe { JSValueToStringCopy(context, prompt_arg, std::ptr::null_mut()) };
+                let js_string =
+                    unsafe { JSValueToStringCopy(context, prompt_arg, std::ptr::null_mut()) };
                 let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
                 let length = unsafe { JSStringGetLength(js_string) };
 
@@ -504,5 +533,16 @@ impl Lunos {
         }
 
         result
+    }
+
+    unsafe extern "C" fn exit_callback(
+        _context: *const OpaqueJSContext,
+        _: *mut OpaqueJSValue,
+        _: *mut OpaqueJSValue,
+        _argument_count: usize,
+        arguments: *const *const OpaqueJSValue,
+        _exception: *mut *const OpaqueJSValue,
+    ) -> *const OpaqueJSValue {
+        exit(unsafe { *arguments.wrapping_add(0) as i32 });
     }
 }
