@@ -97,7 +97,7 @@ impl Lunos {
     }
 
     pub fn argv() -> Vec<String> {
-        std::env::args().skip(1).collect()
+        std::env::args().skip(2).collect()
     }
 
     unsafe extern "C" fn argv_callback(
