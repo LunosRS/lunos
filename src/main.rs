@@ -72,8 +72,17 @@ fn main() {
         _ => {}
     }
 
-    let js_file = &args[1];
-    let js_code = match fs::read_to_string(js_file) {
+    let js_file_arg = &args[1];
+
+    let js_file = match fs::canonicalize(js_file_arg) {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(e) => {
+            eprintln!("Error resolving file path {}: {}", js_file_arg, e);
+            std::process::exit(1);
+        }
+    };
+
+    let js_code = match fs::read_to_string(&js_file) {
         Ok(content) => content,
         Err(e) => {
             eprintln!("Error reading file {}: {}", js_file, e);
@@ -81,7 +90,7 @@ fn main() {
         }
     };
 
-    let processed_js_code = modules::es6::process_es6_modules(js_file, &js_code) + "\nconsole.flush();";
+    let processed_js_code = modules::es6::process_es6_modules(&js_file, &js_code) + "\nconsole.flush();";
 
     let context = modules::es6::get_context();
 
