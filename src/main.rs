@@ -46,16 +46,6 @@ thread_local! {
     static LOCAL_RUNTIME: RefCell<Option<Arc<JSRuntime>>> = RefCell::new(None);
 }
 
-fn get_context() -> *mut OpaqueJSContext {
-    LOCAL_RUNTIME.with(|runtime| {
-        let mut runtime = runtime.borrow_mut();
-        if runtime.is_none() {
-            *runtime = Some(RUNTIME.clone());
-        }
-        runtime.as_ref().unwrap().context
-    })
-}
-
 fn main() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
@@ -84,17 +74,19 @@ fn main() {
 
     let js_file = &args[1];
     let js_code = match fs::read_to_string(js_file) {
-        Ok(content) => content + "\nconsole.flush();",
+        Ok(content) => content,
         Err(e) => {
             eprintln!("Error reading file {}: {}", js_file, e);
             std::process::exit(1);
         }
     };
 
-    let context = get_context();
+    let processed_js_code = modules::es6::process_es6_modules(js_file, &js_code) + "\nconsole.flush();";
+
+    let context = modules::es6::get_context();
 
     unsafe {
-        let js_cstr = CString::new(js_code).unwrap();
+        let js_cstr = CString::new(processed_js_code).unwrap();
         let script = JSStringCreateWithUTF8CString(js_cstr.as_ptr());
 
         let result = JSEvaluateScript(
