@@ -55,7 +55,7 @@ fn main() {
     Lazy::force(&RUNTIME);
 
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
+    if args.len() < 2 {
         help::show(1);
     }
 

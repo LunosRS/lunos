@@ -2,6 +2,7 @@ use rusty_jsc::*;
 use mime_guess;
 use std::ffi::CString;
 use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
@@ -23,12 +24,45 @@ impl Lunos {
                 Some(Self::serve_callback),
             );
 
+            let input_name = CString::new("input").unwrap();
+            let input_function = JSObjectMakeFunctionWithCallback(
+                context,
+                JSStringCreateWithUTF8CString(input_name.as_ptr()),
+                Some(Self::input_callback),
+            );
+
+            let argv_name = CString::new("argv").unwrap();
+            let argv_function = JSObjectMakeFunctionWithCallback(
+                context,
+                JSStringCreateWithUTF8CString(argv_name.as_ptr()),
+                Some(Self::argv_callback),
+            );
+
             let lunos_object = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
+
             JSObjectSetProperty(
                 context,
                 lunos_object,
                 JSStringCreateWithUTF8CString(serve_name.as_ptr()),
                 serve_function,
+                kJSPropertyAttributeNone,
+                std::ptr::null_mut(),
+            );
+
+            JSObjectSetProperty(
+                context,
+                lunos_object,
+                JSStringCreateWithUTF8CString(input_name.as_ptr()),
+                input_function,
+                kJSPropertyAttributeNone,
+                std::ptr::null_mut(),
+            );
+
+            JSObjectSetProperty(
+                context,
+                lunos_object,
+                JSStringCreateWithUTF8CString(argv_name.as_ptr()),
+                argv_function,
                 kJSPropertyAttributeNone,
                 std::ptr::null_mut(),
             );
@@ -43,6 +77,41 @@ impl Lunos {
                 std::ptr::null_mut(),
             );
         }
+    }
+
+    pub fn argv() -> Vec<String> {
+        std::env::args().skip(1).collect()
+    }
+
+    unsafe extern "C" fn argv_callback(
+        context: *const OpaqueJSContext,
+        _: *mut OpaqueJSValue,
+        _: *mut OpaqueJSValue,
+        _argument_count: usize,
+        _arguments: *const *const OpaqueJSValue,
+        _: *mut *const OpaqueJSValue,
+    ) -> *const OpaqueJSValue {
+        let args = Self::argv();
+        let js_array = unsafe { JSObjectMakeArray(context, 0, std::ptr::null(), std::ptr::null_mut()) };
+
+        for (i, arg) in args.iter().enumerate() {
+            let arg_cstring = CString::new(arg.clone()).unwrap();
+            let js_arg = unsafe { JSStringCreateWithUTF8CString(arg_cstring.as_ptr()) };
+            let js_value = unsafe { JSValueMakeString(context, js_arg) };
+            unsafe { JSStringRelease(js_arg) };
+
+            unsafe {
+                JSObjectSetPropertyAtIndex(
+                    context,
+                    js_array as *mut _,
+                    i as u32,
+                    js_value,
+                    std::ptr::null_mut(),
+                );
+            }
+        }
+
+        js_array
     }
 
     unsafe extern "C" fn serve_callback(
@@ -385,5 +454,51 @@ impl Lunos {
         } else {
             None
         }
+    }
+
+    unsafe extern "C" fn input_callback(
+        context: *const OpaqueJSContext,
+        _: *mut OpaqueJSValue,
+        _: *mut OpaqueJSValue,
+        argument_count: usize,
+        arguments: *const *const OpaqueJSValue,
+        _: *mut *const OpaqueJSValue,
+    ) -> *const OpaqueJSValue {
+        let mut result = unsafe { JSValueMakeNull(context) };
+
+        if argument_count > 0 {
+            let prompt_arg = unsafe { *arguments };
+
+            if unsafe { JSValueIsString(context, prompt_arg) } != false {
+                let js_string = unsafe { JSValueToStringCopy(context, prompt_arg, std::ptr::null_mut()) };
+                let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
+                let length = unsafe { JSStringGetLength(js_string) };
+
+                let prompt = unsafe {
+                    String::from_utf16_lossy(std::slice::from_raw_parts(c_string, length))
+                };
+                unsafe { JSStringRelease(js_string) };
+
+                print!("{}", prompt);
+                io::stdout().flush().unwrap();
+
+                let mut input = String::new();
+                if io::stdin().read_line(&mut input).is_ok() {
+                    if input.ends_with('\n') {
+                        input.pop();
+                    }
+                    if input.ends_with('\r') {
+                        input.pop();
+                    }
+
+                    let input_cstring = CString::new(input).unwrap();
+                    let js_input = unsafe { JSStringCreateWithUTF8CString(input_cstring.as_ptr()) };
+                    result = unsafe { JSValueMakeString(context, js_input) };
+                    unsafe { JSStringRelease(js_input) };
+                }
+            }
+        }
+
+        result
     }
 }
