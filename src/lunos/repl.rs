@@ -2,7 +2,7 @@ use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType};
 use rusty_jsc::*;
 use rustyline::DefaultEditor;
-use std::io::{stdout, Write};
+use std::io::{Write, stdout};
 use std::{ffi::CString, process};
 
 use crate::lunos::constants::{

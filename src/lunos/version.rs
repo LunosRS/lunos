@@ -1,4 +1,4 @@
-use super::constants::{ASCII_BANNER, NAME, VERSION, DESCRIPTION, AUTHORS, LICENSE};
+use super::constants::{ASCII_BANNER, AUTHORS, DESCRIPTION, LICENSE, NAME, VERSION};
 
 pub fn show(exit_code: i32) {
     print!("{}", ASCII_BANNER);

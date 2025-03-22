@@ -46,6 +46,13 @@ impl Lunos {
                 Some(Self::exit_callback),
             );
 
+            let load_file = CString::new("loadFile").unwrap();
+            let load_file_function = JSObjectMakeFunctionWithCallback(
+                context,
+                JSStringCreateWithUTF8CString(exit_name.as_ptr()),
+                Some(Self::load_file_callback),
+            );
+
             let lunos_object = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
 
             JSObjectSetProperty(
@@ -80,6 +87,15 @@ impl Lunos {
                 lunos_object,
                 JSStringCreateWithUTF8CString(exit_name.as_ptr()),
                 exit_function,
+                kJSPropertyAttributeNone,
+                std::ptr::null_mut(),
+            );
+
+            JSObjectSetProperty(
+                context,
+                lunos_object,
+                JSStringCreateWithUTF8CString(load_file.as_ptr()),
+                load_file_function,
                 kJSPropertyAttributeNone,
                 std::ptr::null_mut(),
             );
@@ -422,7 +438,7 @@ impl Lunos {
         };
         unsafe { JSStringRelease(property_name) };
 
-        if unsafe { JSValueIsString(context, property_value) } != false {
+        if unsafe { JSValueIsString(context, property_value) } {
             let js_string =
                 unsafe { JSValueToStringCopy(context, property_value, std::ptr::null_mut()) };
             let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
@@ -456,7 +472,7 @@ impl Lunos {
         };
         unsafe { JSStringRelease(property_name) };
 
-        if unsafe { JSValueIsNumber(context, property_value) } != false {
+        if unsafe { JSValueIsNumber(context, property_value) } {
             Some(unsafe { JSValueToNumber(context, property_value, std::ptr::null_mut()) } as u16)
         } else {
             None
@@ -481,8 +497,8 @@ impl Lunos {
         };
         unsafe { JSStringRelease(property_name) };
 
-        if unsafe { JSValueIsBoolean(context, property_value) } != false {
-            Some(unsafe { JSValueToBoolean(context, property_value) } != false)
+        if unsafe { JSValueIsBoolean(context, property_value) } {
+            Some(unsafe { JSValueToBoolean(context, property_value) })
         } else {
             None
         }
@@ -501,7 +517,7 @@ impl Lunos {
         if argument_count > 0 {
             let prompt_arg = unsafe { *arguments };
 
-            if unsafe { JSValueIsString(context, prompt_arg) } != false {
+            if unsafe { JSValueIsString(context, prompt_arg) } {
                 let js_string =
                     unsafe { JSValueToStringCopy(context, prompt_arg, std::ptr::null_mut()) };
                 let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
@@ -544,5 +560,31 @@ impl Lunos {
         _exception: *mut *const OpaqueJSValue,
     ) -> *const OpaqueJSValue {
         exit(unsafe { *arguments.wrapping_add(0) as i32 });
+    }
+
+    unsafe extern "C" fn load_file_callback(
+        _context: *const OpaqueJSContext,
+        _: *mut OpaqueJSValue,
+        _: *mut OpaqueJSValue,
+        _argument_count: usize,
+        arguments: *const *const OpaqueJSValue,
+        _exception: *mut *const OpaqueJSValue,
+    ) -> *const OpaqueJSValue {
+        let script_dir: PathBuf = std::env::current_dir().unwrap();
+        let js_string =
+            unsafe { JSValueToStringCopy(_context, *arguments.add(0), std::ptr::null_mut()) };
+        let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
+        let length = unsafe { JSStringGetLength(js_string) };
+        let relative_path =
+            String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(c_string, length) });
+        unsafe { JSStringRelease(js_string) };
+
+        let file_path = script_dir.join(relative_path);
+        let file_content = fs::read_to_string(&file_path)
+            .unwrap_or_else(|err| format!("Failed to read file {}: {}", file_path.display(), err));
+
+        let content_cstring = CString::new(file_content).unwrap();
+        let js_content = unsafe { JSStringCreateWithUTF8CString(content_cstring.as_ptr()) };
+        unsafe { JSValueMakeString(_context, js_content) }
     }
 }

@@ -195,7 +195,6 @@ fn extract_exports(js_code: &str) -> Vec<String> {
     for line in js_code.lines() {
         let line = line.trim();
         if line.starts_with("export") {
-
             if line.contains("{") && line.contains("}") && !line.starts_with("export default") {
                 let start = line.find('{').unwrap_or(0) + 1;
                 let end = line.find('}').unwrap_or(line.len());
@@ -348,7 +347,7 @@ pub(crate) fn process_es6_modules(js_file: &str, js_code: &str) -> String {
                     std::process::exit(1);
                 }
             } else if exports.contains(&symbol) {
-                continue
+                continue;
             } else {
                 std::process::exit(1);
             }

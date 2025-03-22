@@ -2,18 +2,16 @@ mod lunos;
 mod modules;
 mod utility;
 
-use rusty_jsc::*;
 use lunos::{help, repl, version};
+use once_cell::sync::Lazy;
+use rusty_jsc::*;
+use std::cell::RefCell;
 use std::env;
 use std::ffi::CString;
 use std::fs;
-use std::cell::RefCell;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
 
-static RUNTIME: Lazy<Arc<JSRuntime>> = Lazy::new(|| {
-    Arc::new(JSRuntime::new())
-});
+static RUNTIME: Lazy<Arc<JSRuntime>> = Lazy::new(|| Arc::new(JSRuntime::new()));
 
 struct JSRuntime {
     context: *mut OpaqueJSContext,
@@ -43,7 +41,7 @@ impl Drop for JSRuntime {
 }
 
 thread_local! {
-    static LOCAL_RUNTIME: RefCell<Option<Arc<JSRuntime>>> = RefCell::new(None);
+    static LOCAL_RUNTIME: RefCell<Option<Arc<JSRuntime>>> = const { RefCell::new(None) };
 }
 
 fn main() {
@@ -90,8 +88,8 @@ fn main() {
         }
     };
 
-    let processed_js_code = modules::es6::process_es6_modules(&js_file, &js_code) + "\nconsole.flush();";
-
+    let processed_js_code =
+        modules::es6::process_es6_modules(&js_file, &js_code) + "\nconsole.flush();";
     let context = modules::es6::get_context();
 
     unsafe {

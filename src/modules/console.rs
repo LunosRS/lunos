@@ -1,9 +1,9 @@
 use crate::utility::stdout::write_stdout;
-use rusty_jsc::*;
 use once_cell::sync::Lazy;
+use rusty_jsc::*;
 use std::ffi::CString;
-use std::sync::Mutex;
 use std::mem::MaybeUninit;
+use std::sync::Mutex;
 
 const BUF_SIZE: usize = 1024 * 1024;
 const CHUNK_SIZE: usize = 1000;
@@ -29,12 +29,14 @@ type JSCallback = unsafe extern "C" fn(
     *mut *const OpaqueJSValue,
 ) -> *const OpaqueJSValue;
 
-static FUNCTION_NAMES: Lazy<[(CString, JSCallback); 4]> = Lazy::new(|| [
-    (CString::new("log").unwrap(), Console::log_callback),
-    (CString::new("warn").unwrap(), Console::warn_callback),
-    (CString::new("error").unwrap(), Console::error_callback),
-    (CString::new("flush").unwrap(), Console::flush_callback),
-]);
+static FUNCTION_NAMES: Lazy<[(CString, JSCallback); 4]> = Lazy::new(|| {
+    [
+        (CString::new("log").unwrap(), Console::log_callback),
+        (CString::new("warn").unwrap(), Console::warn_callback),
+        (CString::new("error").unwrap(), Console::error_callback),
+        (CString::new("flush").unwrap(), Console::flush_callback),
+    ]
+});
 
 static CONSOLE_STR: Lazy<CString> = Lazy::new(|| CString::new("console").unwrap());
 
@@ -82,7 +84,8 @@ impl Console {
 
             for (name, callback) in FUNCTION_NAMES.iter() {
                 let js_string = JSStringCreateWithUTF8CString(name.as_ptr());
-                let function = JSObjectMakeFunctionWithCallback(context, js_string, Some(*callback));
+                let function =
+                    JSObjectMakeFunctionWithCallback(context, js_string, Some(*callback));
                 JSObjectSetProperty(
                     context,
                     console,
@@ -182,9 +185,12 @@ impl Console {
                     pos += 2;
                 }
             }
-            buffer.extend_from_slice(unsafe { std::slice::from_raw_parts(stack_buf.as_ptr() as *const u8, pos) });
+            buffer.extend_from_slice(unsafe {
+                std::slice::from_raw_parts(stack_buf.as_ptr() as *const u8, pos)
+            });
         } else {
-            let rust_string = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(c_string, length) });
+            let rust_string =
+                String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(c_string, length) });
             buffer.extend_from_slice(rust_string.as_bytes());
         }
 

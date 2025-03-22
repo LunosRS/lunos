@@ -1,5 +1,5 @@
-pub mod help;
-pub mod version;
 pub mod constants;
-pub mod repl;
+pub mod help;
 pub mod io;
+pub mod repl;
+pub mod version;
