@@ -53,6 +53,13 @@ impl Lunos {
                 Some(Self::load_file_callback),
             );
 
+            let shell = CString::new("shell").unwrap();
+            let shell_function = JSObjectMakeFunctionWithCallback(
+                context,
+                JSStringCreateWithUTF8CString(exit_name.as_ptr()),
+                Some(Self::shell_callback),
+            );
+
             let lunos_object = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
 
             JSObjectSetProperty(
@@ -96,6 +103,15 @@ impl Lunos {
                 lunos_object,
                 JSStringCreateWithUTF8CString(load_file.as_ptr()),
                 load_file_function,
+                kJSPropertyAttributeNone,
+                std::ptr::null_mut(),
+            );
+
+            JSObjectSetProperty(
+                context,
+                lunos_object,
+                JSStringCreateWithUTF8CString(shell.as_ptr()),
+                shell_function,
                 kJSPropertyAttributeNone,
                 std::ptr::null_mut(),
             );
@@ -586,5 +602,108 @@ impl Lunos {
         let content_cstring = CString::new(file_content).unwrap();
         let js_content = unsafe { JSStringCreateWithUTF8CString(content_cstring.as_ptr()) };
         unsafe { JSValueMakeString(_context, js_content) }
+    }
+
+    unsafe extern "C" fn shell_callback(
+        context: *const OpaqueJSContext,
+        _: *mut OpaqueJSValue,
+        _: *mut OpaqueJSValue,
+        argument_count: usize,
+        arguments: *const *const OpaqueJSValue,
+        exception: *mut *const OpaqueJSValue,
+    ) -> *const OpaqueJSValue {
+        if argument_count < 2 {
+            unsafe {
+                let error_msg =
+                    CString::new("shell requires at least 2 arguments: command and args").unwrap();
+                let error_str = JSStringCreateWithUTF8CString(error_msg.as_ptr());
+                let error = JSValueMakeString(context, error_str);
+                JSStringRelease(error_str);
+                *exception = error;
+                return std::ptr::null();
+            }
+        }
+
+        let shell = if let Some(shell_str) =
+            unsafe { JSValAsString(context, *arguments.offset(0)) }
+        {
+            shell_str
+        } else {
+            let error_msg = CString::new("Failed to parse shell command").unwrap();
+            let error_str = unsafe { JSStringCreateWithUTF8CString(error_msg.as_ptr()) };
+            let error = unsafe { JSValueMakeString(context, error_str) };
+            unsafe { JSStringRelease(error_str) };
+            unsafe { *exception = error };
+            return std::ptr::null();
+        };
+
+        let cmd = if let Some(cmd_str) =
+            unsafe { JSValAsString(context, *arguments.offset(1)) }
+        {
+            cmd_str
+        } else {
+            let error_msg = CString::new("Failed to parse command arguments").unwrap();
+            let error_str = unsafe { JSStringCreateWithUTF8CString(error_msg.as_ptr()) };
+            let error = unsafe { JSValueMakeString(context, error_str) };
+            unsafe { JSStringRelease(error_str) };
+            unsafe { *exception = error };
+            return std::ptr::null();
+        };
+
+        unsafe {
+            let output = match std::process::Command::new(&shell)
+                .arg("-c")
+                .arg(&cmd)
+                .output()
+            {
+                Ok(output) => output,
+                Err(e) => {
+                    let error_msg =
+                        CString::new(format!("Failed to execute command: {}", e)).unwrap();
+                    let error_str = JSStringCreateWithUTF8CString(error_msg.as_ptr());
+                    let error = JSValueMakeString(context, error_str);
+                    JSStringRelease(error_str);
+                    *exception = error;
+                    return std::ptr::null();
+                }
+            };
+
+            let result_obj = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
+
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let stdout_c_str = CString::new(stdout_str.as_bytes()).unwrap();
+            let stdout_js_str = JSStringCreateWithUTF8CString(stdout_c_str.as_ptr());
+            let stdout_js_val = JSValueMakeString(context, stdout_js_str);
+            let result_prop_name = CString::new("result").unwrap();
+            let result_prop = JSStringCreateWithUTF8CString(result_prop_name.as_ptr());
+            JSObjectSetProperty(
+                context,
+                result_obj,
+                result_prop,
+                stdout_js_val,
+                0,
+                std::ptr::null_mut(),
+            );
+            JSStringRelease(result_prop);
+            JSStringRelease(stdout_js_str);
+
+            let stderr_str = String::from_utf8_lossy(&output.stderr);
+            let stderr_c_str = CString::new(stderr_str.as_bytes()).unwrap();
+            let stderr_js_str = JSStringCreateWithUTF8CString(stderr_c_str.as_ptr());
+            let stderr_js_val = JSValueMakeString(context, stderr_js_str);
+            let error_prop_name = CString::new("error").unwrap();
+            let error_prop = JSStringCreateWithUTF8CString(error_prop_name.as_ptr());
+            JSObjectSetProperty(
+                context,
+                result_obj,
+                error_prop,
+                stderr_js_val,
+                0,
+                std::ptr::null_mut(),
+            );
+            JSStringRelease(error_prop);
+            JSStringRelease(stderr_js_str);
+            result_obj
+        }
     }
 }
