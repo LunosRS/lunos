@@ -28,7 +28,7 @@ fn build_macos() {
 
 fn build_linux() {
     println!("Building for Linux...");
-    println!("cargo:rustc-link-lib=dylib=javascriptcoregtk-4.0");
+    println!("cargo:rustc-link-lib=dylib=javascriptcoregtk-4.1");
 }
 
 fn build_windows() {

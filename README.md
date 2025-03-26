@@ -15,6 +15,7 @@ A blazingly fast JavaScript runtime written in Rust
 
 ## Install
 ```bash
+set -o pipefail
 git clone https://github.com/LunosRS/lunos /tmp/lunosrs; cd /tmp/lunosrs/
 cargo build --release
 sudo mv ./target/release/lunos /usr/local/bin
