@@ -202,6 +202,8 @@ impl Lunos {
             unsafe { Self::get_property_as_u16(context, options_object, "port") }.unwrap_or(9595);
         let static_dir = unsafe { Self::get_property_as_string(context, options_object, "dir") }
             .map(PathBuf::from);
+        let file = unsafe { Self::get_property_as_string(context, options_object, "file") }
+            .map(PathBuf::from);
         let log_middleware =
             unsafe { Self::get_property_as_bool(context, options_object, "logMiddleware") }
                 .unwrap_or(false);
@@ -226,12 +228,14 @@ impl Lunos {
                         let content_type = content_type.clone();
                         let static_dir_owned = static_dir.as_ref().map(|p| p.to_owned());
 
+                        let file_owned = file.as_ref().map(|p| p.to_owned());
                         tokio::spawn(async move {
                             if let Err(e) = Self::handle_connection(
                                 stream,
                                 &response_text,
                                 &content_type,
                                 static_dir_owned,
+                                file_owned,
                                 log_middleware,
                             )
                             .await
@@ -260,6 +264,7 @@ impl Lunos {
         response_text: &str,
         content_type: &str,
         static_dir: Option<PathBuf>,
+        file: Option<PathBuf>,
         log_middleware: bool,
     ) -> io::Result<()> {
         let mut buffer = [0; 1024];
@@ -348,14 +353,28 @@ impl Lunos {
 
         let path = path_opt.unwrap();
 
-        if response_text.is_empty() && static_dir.is_some() {
-            let file_path = static_dir.unwrap().join(&path);
-            if file_path.exists() && file_path.is_file() {
-                let mime_type = mime_guess::from_path(&file_path)
+        if response_text.is_empty() {
+            let mut file_path = None;
+
+            if let Some(specific_file) = &file {
+                if specific_file.exists() && specific_file.is_file() {
+                    file_path = Some(specific_file.clone());
+                }
+            }
+
+            if file_path.is_none() && static_dir.is_some() {
+                let path_from_dir = static_dir.as_ref().unwrap().join(&path);
+                if path_from_dir.exists() && path_from_dir.is_file() {
+                    file_path = Some(path_from_dir);
+                }
+            }
+
+            if let Some(file_to_serve) = file_path {
+                let mime_type = mime_guess::from_path(&file_to_serve)
                     .first_or_octet_stream()
                     .to_string();
 
-                let content = fs::read(&file_path)?;
+                let content = fs::read(&file_to_serve)?;
 
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
