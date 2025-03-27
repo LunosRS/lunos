@@ -14,6 +14,11 @@ A blazingly fast JavaScript runtime written in Rust
   - Dont use this trash os, but if you insist: [*Yikes*](docs/WINDOWS.md)
 
 ## Install
+**TPI:**
+```sh
+tpi install lunos
+```
+
 ```bash
 set -o pipefail
 git clone https://github.com/LunosRS/lunos /tmp/lunosrs; cd /tmp/lunosrs/
