@@ -19,6 +19,7 @@ A blazingly fast JavaScript runtime written in Rust
 tpi install lunos
 ```
 
+Shell:
 ```bash
 set -o pipefail
 git clone https://github.com/LunosRS/lunos /tmp/lunosrs; cd /tmp/lunosrs/
