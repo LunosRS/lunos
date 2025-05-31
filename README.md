@@ -5,7 +5,7 @@ A blazingly fast JavaScript runtime written in Rust
 ## Prerequisites
 - [Rust](https://rust-lang.org)
 - Linux
-  - libwebkit2gtk-4.1-dev: `sudo apt install gir1.2-webkit2-4.0 libwebkit2gtk-4.1-dev`
+  - libwebkit2gtk-4.1-dev: `sudo apt install gir1.2-webkit2-4.1 libwebkit2gtk-4.1-dev`
 - macOS
   - Already has the WebKit '.framework' :)
 - FreeBSD
