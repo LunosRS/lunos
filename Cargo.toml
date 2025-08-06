@@ -7,10 +7,10 @@ authors = ["LunosRS"]
 license = "MIT"
 
 [dependencies]
-crossterm = "0.28.1"
+crossterm = "0.29.0"
 rusty_jsc = { git = "https://github.com/LunosRS/rusty_jsc.git", branch = "main" }
 once_cell = "1.20.2"
-rustyline = "15.0.0"
+rustyline = "17.0.0"
 num_cpus = "1.16.0"
 rayon = "1.8.1"
 tokio = { version = "1.43.0", features = ["full"] }
@@ -29,6 +29,3 @@ opt-level = 3
 
 [profile.release.package."*"]
 opt-level = 3
-
-[build-dependencies]
-cc = "1.0"
