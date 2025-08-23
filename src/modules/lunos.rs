@@ -210,10 +210,10 @@ impl Lunos {
 
         let rt = Runtime::new().unwrap();
         rt.block_on(async move {
-            let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+            let listener = TcpListener::bind(format!("0.0.0.0:{port}"))
                 .await
                 .unwrap();
-            println!("Server listening on port {}", port);
+            println!("Server listening on port {port}");
             if static_dir.is_some() {
                 println!(
                     "Serving static files from {}",
@@ -240,18 +240,18 @@ impl Lunos {
                             )
                             .await
                             {
-                                eprintln!("Error handling connection from {}: {}", addr, e);
+                                eprintln!("Error handling connection from {addr}: {e}");
                             }
                         });
                     }
                     Err(e) => {
-                        eprintln!("Error accepting connection: {}", e);
+                        eprintln!("Error accepting connection: {e}");
                     }
                 }
             }
         });
 
-        let result_message = format!("Server started on port {}", port);
+        let result_message = format!("Server started on port {port}");
         let js_result_message =
             unsafe { JSStringCreateWithUTF8CString(result_message.as_ptr() as *const i8) };
         let js_result = unsafe { JSValueMakeString(context, js_result_message) };
@@ -337,15 +337,13 @@ impl Lunos {
                     let seconds = secs_in_day % 60;
 
                     format!(
-                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-                        year, month, day, hours, minutes, seconds, millis
+                        "{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02}.{millis:03}"
                     )
                 };
 
                 status_code = 400;
                 println!(
-                    "{} [Lunos INFO]: {} ..... {} ..... {}",
-                    date_time, request_path, method, status_code
+                    "{date_time} [Lunos INFO]: {request_path} ..... {method} ..... {status_code}"
                 );
             }
             return Ok(());
@@ -356,14 +354,17 @@ impl Lunos {
         if response_text.is_empty() {
             let mut file_path = None;
 
-            if let Some(specific_file) = &file {
-                if specific_file.exists() && specific_file.is_file() {
-                    file_path = Some(specific_file.clone());
-                }
+            if let Some(specific_file) = &file
+                && specific_file.exists()
+                && specific_file.is_file()
+            {
+                file_path = Some(specific_file.clone());
             }
 
-            if file_path.is_none() && static_dir.is_some() {
-                let path_from_dir = static_dir.as_ref().unwrap().join(&path);
+            if file_path.is_none()
+                && let Some(dir) = static_dir.as_ref()
+            {
+                let path_from_dir = dir.join(&path);
                 if path_from_dir.exists() && path_from_dir.is_file() {
                     file_path = Some(path_from_dir);
                 }
@@ -435,21 +436,16 @@ impl Lunos {
                 }
 
                 let day = days_in_year + 1;
-
                 let hours = secs_in_day / 3600;
                 let minutes = (secs_in_day % 3600) / 60;
                 let seconds = secs_in_day % 60;
 
                 format!(
-                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-                    year, month, day, hours, minutes, seconds, millis
+                    "{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02}.{millis:03}"
                 )
             };
 
-            println!(
-                "{} [Lunos INFO]: {} ..... {} ..... {}",
-                date_time, request_path, method, status_code
-            );
+            println!("{date_time} [Lunos INFO]: {request_path} ..... {method} ..... {status_code}");
         }
 
         Ok(())
@@ -563,7 +559,7 @@ impl Lunos {
                 };
                 unsafe { JSStringRelease(js_string) };
 
-                print!("{}", prompt);
+                print!("{prompt}");
                 io::stdout().flush().unwrap();
 
                 let mut input = String::new();
@@ -643,8 +639,7 @@ impl Lunos {
             }
         }
 
-        let shell = if let Some(shell_str) =
-            unsafe { JSValAsString(context, *arguments.offset(0)) }
+        let shell = if let Some(shell_str) = unsafe { JSValAsString(context, *arguments.offset(0)) }
         {
             shell_str
         } else {
@@ -656,9 +651,7 @@ impl Lunos {
             return std::ptr::null();
         };
 
-        let cmd = if let Some(cmd_str) =
-            unsafe { JSValAsString(context, *arguments.offset(1)) }
-        {
+        let cmd = if let Some(cmd_str) = unsafe { JSValAsString(context, *arguments.offset(1)) } {
             cmd_str
         } else {
             let error_msg = CString::new("Failed to parse command arguments").unwrap();
@@ -678,7 +671,7 @@ impl Lunos {
                 Ok(output) => output,
                 Err(e) => {
                     let error_msg =
-                        CString::new(format!("Failed to execute command: {}", e)).unwrap();
+                        CString::new(format!("Failed to execute command: {e}")).unwrap();
                     let error_str = JSStringCreateWithUTF8CString(error_msg.as_ptr());
                     let error = JSValueMakeString(context, error_str);
                     JSStringRelease(error_str);

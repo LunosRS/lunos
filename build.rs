@@ -7,7 +7,7 @@ fn main() {
         "windows" => build_windows(),
         _ => panic!("Unsupported target OS"),
     }
-    
+
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/utility/stdout.cpp");
     println!("cargo:rerun-if-changed=include/stdout.hpp");
@@ -26,21 +26,19 @@ fn build_linux() {
     // we use dynamically select the version
     if let Ok(output) = Command::new("pkg-config")
         .args(["--libs", "javascriptcoregtk-4.1"])
-        .output() {
-        if output.status.success() {
+        .output()
+        && output.status.success() {
             println!("cargo:rustc-link-lib=dylib=javascriptcoregtk-4.1");
             return;
         }
-    }
 
     if let Ok(output) = Command::new("pkg-config")
         .args(["--libs", "javascriptcoregtk-4.0"])
-        .output() {
-        if output.status.success() {
+        .output()
+        && output.status.success() {
             println!("cargo:rustc-link-lib=dylib=javascriptcoregtk-4.0");
             return;
         }
-    }
 
     panic!("Could not find JavaScriptCore GTK library (tried 4.1 and 4.0)");
 }

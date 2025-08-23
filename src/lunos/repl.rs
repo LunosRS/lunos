@@ -4,14 +4,15 @@ use rusty_jsc::*;
 use rustyline::DefaultEditor;
 use std::io::{Write, stdout};
 use std::{ffi::CString, process};
-
+use std::time::Duration;
+use rustyline::error::ReadlineError;
 use crate::lunos::constants::{
     ASCII_BANNER, NAME, REPL_HELP, THE_ULTIMATE_QUESTION_AND_ANSWER, VERSION,
 };
 use crate::lunos::io::colorize;
 
 fn print_welcome() {
-    println!("Welcome to Lunos v{}", VERSION);
+    println!("Welcome to Lunos v{VERSION}");
     colorize(
         "[!] Please note: this feature is not fully baked!",
         "yellow",
@@ -27,11 +28,11 @@ fn clear() {
 fn handle_command(input: &str, exit_code: i32) -> bool {
     match input {
         ".help" => {
-            println!("{}", REPL_HELP);
+            println!("{REPL_HELP}");
             true
         }
         ".version" => {
-            println!("{}{} v{}", ASCII_BANNER, NAME, VERSION);
+            println!("{ASCII_BANNER}{NAME} v{VERSION}");
             true
         }
         ".exit" => {
@@ -45,20 +46,20 @@ fn handle_command(input: &str, exit_code: i32) -> bool {
         ".answer_to_the_ultimate_question_of_life_the_universe_and_everything" => {
             let mut chars = THE_ULTIMATE_QUESTION_AND_ANSWER.chars().peekable();
             while let Some(c) = chars.next() {
-                print!("{}", c);
+                print!("{c}");
                 stdout().flush().unwrap();
 
                 if (c == '.' || c == '!' || c == '?') && chars.peek() != Some(&'.') {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    std::thread::sleep(Duration::from_millis(500));
                 } else {
-                    std::thread::sleep(std::time::Duration::from_millis(15));
+                    std::thread::sleep(Duration::from_millis(15));
                 }
             }
             println!();
             true
         }
         _ if input.starts_with('.') => {
-            println!("Unknown command: {}", input);
+            println!("Unknown command: {input}");
             true
         }
         _ => false,
@@ -77,11 +78,13 @@ pub fn start_repl(exit_code: i32) {
         print_welcome();
 
         let mut rusty_line = DefaultEditor::new().unwrap();
+        let mut last_was_ctrl_c = false;
 
         loop {
             let readline = rusty_line.readline("> ");
             match readline {
                 Ok(input) => {
+                    last_was_ctrl_c = false;
                     let input = input.trim();
 
                     if handle_command(input, exit_code) {
@@ -90,7 +93,7 @@ pub fn start_repl(exit_code: i32) {
 
                     rusty_line.add_history_entry(input).unwrap();
 
-                    let js_code = format!("eval('{}')", input);
+                    let js_code = format!("eval('{input}')");
                     let js_cstr = CString::new(js_code).unwrap();
                     let script = JSStringCreateWithUTF8CString(js_cstr.as_ptr());
 
@@ -117,9 +120,9 @@ pub fn start_repl(exit_code: i32) {
                         );
 
                         if length > 0 {
-                            let output = String::from_utf8_lossy(&buffer[..length as usize - 1]);
+                            let output = String::from_utf8_lossy(&buffer[..length - 1]);
                             if output != "undefined" {
-                                println!("{}", output);
+                                println!("{output}");
                             }
                         }
 
@@ -141,13 +144,23 @@ pub fn start_repl(exit_code: i32) {
 
                     JSStringRelease(flush_script);
                 }
-                Err(_) => {
-                    println!("Error reading input.");
+                Err(ReadlineError::Interrupted) => {
+                    if last_was_ctrl_c {
+                        colorize("Goodbye!", "green");
+                        process::exit(exit_code);
+                    }
+                    last_was_ctrl_c = true;
+                    println!("To exit, press Ctrl+C again or Ctrl+D or type .exit");
+                }
+                Err(ReadlineError::Eof) => {
+                    colorize("Goodbye!", "green");
+                    process::exit(exit_code);
+                }
+                Err(err) => {
+                    println!("Error: {err}");
                     break;
                 }
             }
         }
-
-        JSGlobalContextRelease(context);
     }
 }

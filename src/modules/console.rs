@@ -9,15 +9,15 @@ const BUF_SIZE: usize = 1024 * 1024;
 const CHUNK_SIZE: usize = 1000;
 
 static COLORS: Lazy<JSColors> = Lazy::new(|| JSColors {
-    null: b"\x1b[90m",      // Gray
-    undefined: b"\x1b[90m", // Gray
-    boolean: b"\x1b[35m",   // Magenta
-    number: b"\x1b[33m",    // Yellow
-    string: b"",            // No color
-    array: b"\x1b[36m",     // Cyan
-    object: b"\x1b[34m",    // Blue
-    unknown: b"\x1b[37m",   // White
-    reset: b"\x1b[0m",      // Reset
+    null: b"\x1b[90m",
+    undefined: b"\x1b[90m",
+    boolean: b"\x1b[33m",
+    number: b"\x1b[33m",
+    string: b"\x1b[32m",
+    array: b"\x1b[36m",
+    object: b"\x1b[34m",
+    unknown: b"\x1b[37m",
+    reset: b"\x1b[0m",
 });
 
 type JSCallback = unsafe extern "C" fn(
@@ -77,7 +77,7 @@ impl Console {
         }
     }
 
-    pub fn bind_to_context(self: &Self, context: *mut OpaqueJSContext) {
+    pub fn bind_to_context(&self, context: *mut OpaqueJSContext) {
         unsafe {
             let global_object = JSContextGetGlobalObject(context);
             let console = JSObjectMake(context, std::ptr::null_mut(), std::ptr::null_mut());
@@ -116,18 +116,18 @@ impl Console {
         value: *const OpaqueJSValue,
     ) -> JSType {
         unsafe {
-            if JSValueIsNull(context, value) != false {
+            if JSValueIsNull(context, value) {
                 JSType::Null
-            } else if JSValueIsUndefined(context, value) != false {
+            } else if JSValueIsUndefined(context, value) {
                 JSType::Undefined
-            } else if JSValueIsBoolean(context, value) != false {
+            } else if JSValueIsBoolean(context, value) {
                 JSType::Boolean
-            } else if JSValueIsNumber(context, value) != false {
+            } else if JSValueIsNumber(context, value) {
                 JSType::Number
-            } else if JSValueIsString(context, value) != false {
+            } else if JSValueIsString(context, value) {
                 JSType::String
-            } else if JSValueIsObject(context, value) != false {
-                if JSValueIsArray(context, value) != false {
+            } else if JSValueIsObject(context, value) {
+                if JSValueIsArray(context, value) {
                     JSType::Array
                 } else {
                     JSType::Object
@@ -166,7 +166,13 @@ impl Console {
         let value_type = unsafe { Self::get_value_type(context, arg) };
         buffer.extend_from_slice(unsafe { Self::get_value_color(value_type) });
 
-        let js_string = unsafe { JSValueToStringCopy(context, arg, std::ptr::null_mut()) };
+        let mut js_string = std::ptr::null_mut();
+        if matches!(value_type, JSType::Object | JSType::Array) {
+            js_string = unsafe { JSValueCreateJSONString(context, arg, 2, std::ptr::null_mut()) };
+        }
+        if js_string.is_null() {
+            js_string = unsafe { JSValueToStringCopy(context, arg, std::ptr::null_mut()) };
+        }
         let c_string = unsafe { JSStringGetCharactersPtr(js_string) };
         let length = unsafe { JSStringGetLength(js_string) };
 

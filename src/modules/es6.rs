@@ -1,4 +1,5 @@
 use crate::{LOCAL_RUNTIME, RUNTIME};
+use regex::Regex;
 use rusty_jsc::OpaqueJSContext;
 use std::fs;
 use std::io::Read;
@@ -76,7 +77,7 @@ fn resolve_package_main(package_dir: &Path) -> Option<PathBuf> {
                 }
 
                 let main_path_with_js = if !main_value.ends_with(".js") {
-                    package_dir.join(format!("{}.js", main_value))
+                    package_dir.join(format!("{main_value}.js"))
                 } else {
                     main_path
                 };
@@ -111,7 +112,7 @@ fn resolve_module_path(base_path: &Path, import_path: &str) -> PathBuf {
         let package_dir = node_modules_dir.join(package_name);
 
         if !package_dir.exists() {
-            eprintln!("Package '{}' not found in node_modules", package_name);
+            eprintln!("Package '{package_name}' not found in node_modules");
             std::process::exit(1);
         }
 
@@ -123,15 +124,12 @@ fn resolve_module_path(base_path: &Path, import_path: &str) -> PathBuf {
                 return full_path;
             }
 
-            let full_path_js = package_dir.join(format!("{}.js", submodule_path));
+            let full_path_js = package_dir.join(format!("{submodule_path}.js"));
             if full_path_js.exists() {
                 return full_path_js;
             }
 
-            eprintln!(
-                "Submodule '{}' not found in package '{}'",
-                submodule_path, package_name
-            );
+            eprintln!("Submodule '{submodule_path}' not found in package '{package_name}'",);
             std::process::exit(1);
         }
 
@@ -139,16 +137,13 @@ fn resolve_module_path(base_path: &Path, import_path: &str) -> PathBuf {
             return main_path;
         }
 
-        eprintln!(
-            "Could not resolve main entry point for package '{}'",
-            package_name
-        );
+        eprintln!("Could not resolve main entry point for package '{package_name}'");
         std::process::exit(1);
     }
 
     let mut path = base_path.to_path_buf();
     path.pop();
-    path.join(format!("./{}", import_path))
+    path.join(format!("./{import_path}"))
 }
 
 fn extract_imports(js_code: &str) -> Vec<(Vec<String>, String)> {
@@ -163,8 +158,6 @@ fn extract_imports(js_code: &str) -> Vec<(Vec<String>, String)> {
                 let path_part = parts[1].trim().replace(";", "").trim().to_string();
 
                 let module_path = if path_part.starts_with("'") && path_part.ends_with("'") {
-                    path_part[1..path_part.len() - 1].to_string()
-                } else if path_part.starts_with("\"") && path_part.ends_with("\"") {
                     path_part[1..path_part.len() - 1].to_string()
                 } else {
                     continue;
@@ -211,16 +204,15 @@ fn extract_exports(js_code: &str) -> Vec<String> {
                 exports.push("__default_export_value__".to_string());
             } else {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    if parts[1] == "function"
+                if parts.len() >= 3
+                    && (parts[1] == "function"
                         || parts[1] == "const"
                         || parts[1] == "let"
                         || parts[1] == "var"
-                        || parts[1] == "class"
-                    {
-                        let name = parts[2].split('(').next().unwrap_or(parts[2]);
-                        exports.push(name.to_string());
-                    }
+                        || parts[1] == "class")
+                {
+                    let name = parts[2].split('(').next().unwrap_or(parts[2]);
+                    exports.push(name.to_string());
                 }
             }
         }
@@ -253,10 +245,7 @@ fn remove_exports(js_code: &str) -> String {
                     .unwrap_or(default_object_content.len());
                 if start < end {
                     let object_content = &default_object_content[start..=end];
-                    result.push(format!(
-                        "var __default_export_value__ = {};",
-                        object_content
-                    ));
+                    result.push(format!("var __default_export_value__ = {object_content};"));
                 }
                 default_object_content.clear();
             }
@@ -278,7 +267,7 @@ fn remove_exports(js_code: &str) -> String {
                 } else {
                     default_value
                 };
-                result.push(format!("var __default_export_value__ = {};", default_value));
+                result.push(format!("var __default_export_value__ = {default_value};"));
             } else {
                 result.push(line.replacen("export ", "", 1));
             }
@@ -297,13 +286,111 @@ fn remove_exports(js_code: &str) -> String {
 
 use std::collections::HashMap;
 
+fn is_ts_file(path: &Path) -> bool {
+    matches!(path.extension()
+        .and_then(
+            |s| s.to_str()),
+            Some(ext) if ext.eq_ignore_ascii_case("ts") || ext.eq_ignore_ascii_case("tsx")
+    )
+}
+
+fn strip_types(code: &str) -> String {
+    let mut out_lines: Vec<String> = Vec::new();
+    let mut in_interface = false;
+    let mut in_type_alias = false;
+    let mut brace_count: i32 = 0;
+
+    for line in code.lines() {
+        let trimmed = line.trim();
+
+        if in_interface {
+            brace_count += trimmed.chars().filter(|&c| c == '{').count() as i32;
+            brace_count -= trimmed.chars().filter(|&c| c == '}').count() as i32;
+            if brace_count <= 0 {
+                in_interface = false;
+                brace_count = 0;
+            }
+            continue;
+        }
+
+        if in_type_alias {
+            if trimmed.contains(';') {
+                in_type_alias = false;
+                brace_count = 0;
+            } else {
+                brace_count += trimmed.chars().filter(|&c| c == '{').count() as i32;
+                brace_count -= trimmed.chars().filter(|&c| c == '}').count() as i32;
+                if brace_count <= 0 && trimmed.ends_with('}') {
+                    in_type_alias = false;
+                    brace_count = 0;
+                }
+            }
+            continue;
+        }
+
+        if trimmed.starts_with("import type ") {
+            continue;
+        }
+        if trimmed.starts_with("export type ") {
+            continue;
+        }
+        if trimmed.starts_with("type ") || trimmed.starts_with("export type ") {
+            in_type_alias = true;
+            if !trimmed.contains(';') {
+                brace_count = 0;
+            } else {
+                in_type_alias = false;
+                brace_count = 0;
+            }
+            continue;
+        }
+
+        if trimmed.starts_with("interface ") || trimmed.starts_with("export interface ") {
+            in_interface = true;
+            brace_count = 0;
+            brace_count += trimmed.chars().filter(|&c| c == '{').count() as i32;
+            brace_count -= trimmed.chars().filter(|&c| c == '}').count() as i32;
+            if brace_count <= 0 {
+                in_interface = false;
+                brace_count = 0;
+            }
+            continue;
+        }
+
+        out_lines.push(line.to_string());
+    }
+
+    let mut out = out_lines.join("\n");
+
+    let re_impl = Regex::new(r"\s+implements\s+[^{]+\{").unwrap();
+    let re_var_assign =
+        Regex::new(r"\b(const|let|var)\s+([A-Za-z_$][\w$]*)\s*:\s*[^=;]+=").unwrap();
+    let re_var_decl = Regex::new(r"\b(const|let|var)\s+([A-Za-z_$][\w$]*)\s*:\s*[^=;]+;").unwrap();
+    let re_as = Regex::new(r"\s+as\s+[^;,)}\n]+([;,)}\n])").unwrap();
+    let re_angle = Regex::new(r"<\s*[A-Za-z_$][^>]*>\s*([A-Za-z_$({\[])").unwrap();
+
+    out = re_impl.replace_all(&out, " {").into_owned();
+    out = re_var_assign.replace_all(&out, "$1 $2 =").into_owned();
+    out = re_var_decl.replace_all(&out, "$1 $2;").into_owned();
+    out = re_as.replace_all(&out, "$1").into_owned();
+    out = re_angle.replace_all(&out, "$1").into_owned();
+
+    out
+}
+
 pub(crate) fn process_es6_modules(js_file: &str, js_code: &str) -> String {
     let mut processed_code = String::new();
     let mut loaded_modules = Vec::new();
     let mut module_exports = HashMap::new();
     let mut default_imports = Vec::new();
     let base_path = Path::new(js_file);
-    let imports = extract_imports(js_code);
+
+    let main_code_ts_stripped = if is_ts_file(base_path) {
+        strip_types(js_code)
+    } else {
+        js_code.to_string()
+    };
+    let imports = extract_imports(&main_code_ts_stripped);
 
     for (_, module_path) in &imports {
         let resolved_path = resolve_module_path(base_path, module_path);
@@ -313,7 +400,12 @@ pub(crate) fn process_es6_modules(js_file: &str, js_code: &str) -> String {
             continue;
         }
 
-        let module_code = read_module_code(&resolved_path);
+        let module_code_raw = read_module_code(&resolved_path);
+        let module_code = if is_ts_file(&resolved_path) {
+            strip_types(&module_code_raw)
+        } else {
+            module_code_raw
+        };
         let exports = extract_exports(&module_code);
 
         let processed_module_code = remove_exports(&module_code);
@@ -354,7 +446,7 @@ pub(crate) fn process_es6_modules(js_file: &str, js_code: &str) -> String {
         }
     }
 
-    let main_code = remove_exports(js_code);
+    let main_code = remove_exports(&main_code_ts_stripped);
     let main_code_without_imports = main_code
         .lines()
         .filter(|line| !line.trim().starts_with("import"))
@@ -367,10 +459,7 @@ pub(crate) fn process_es6_modules(js_file: &str, js_code: &str) -> String {
         .push_str("\nfunction __get_default_export__() { return __default_export_value__; }\n");
 
     for (import_name, _) in default_imports {
-        processed_code.push_str(&format!(
-            "var {} = __get_default_export__();\n",
-            import_name
-        ));
+        processed_code.push_str(&format!("var {import_name} = __get_default_export__();\n"));
     }
 
     processed_code.push_str(&processed_main_code);
@@ -379,7 +468,7 @@ pub(crate) fn process_es6_modules(js_file: &str, js_code: &str) -> String {
 }
 
 fn read_module_code(resolved_path: &Path) -> String {
-    match fs::read_to_string(&resolved_path) {
+    match fs::read_to_string(resolved_path) {
         Ok(content) => content,
         Err(e) => {
             eprintln!("Error reading module {}: {}", resolved_path.display(), e);

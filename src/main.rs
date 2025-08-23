@@ -54,7 +54,8 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        help::show(1);
+        repl::start_repl(0);
+        return;
     }
 
     match args[1].as_str() {
@@ -67,7 +68,7 @@ fn main() {
         "repl" => {
             repl::start_repl(0);
         }
-        _ => {}
+        _ => help::show(1),
     }
 
     let js_file_arg = &args[1];
@@ -75,7 +76,7 @@ fn main() {
     let js_file = match fs::canonicalize(js_file_arg) {
         Ok(path) => path.to_string_lossy().to_string(),
         Err(e) => {
-            eprintln!("Error resolving file path {}: {}", js_file_arg, e);
+            eprintln!("Error resolving file path {js_file_arg}: {e}");
             std::process::exit(1);
         }
     };
@@ -83,7 +84,7 @@ fn main() {
     let js_code = match fs::read_to_string(&js_file) {
         Ok(content) => content,
         Err(e) => {
-            eprintln!("Error reading file {}: {}", js_file, e);
+            eprintln!("Error reading file {js_file}: {e}");
             std::process::exit(1);
         }
     };
