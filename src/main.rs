@@ -68,7 +68,7 @@ fn main() {
         "repl" => {
             repl::start_repl(0);
         }
-        _ => help::show(1),
+        _ => {},
     }
 
     let js_file_arg = &args[1];
